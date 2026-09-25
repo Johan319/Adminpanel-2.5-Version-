@@ -221,11 +221,14 @@ Shared.HARD_SCRIPT_BANS = {
 }
 -- Remote auto-update URLs (raw text / raw gist). Leave "" to disable.
 -- Ban file JSON:  {"bans":[{"id":123,"reason":"abuse"}]}
-Shared.BAN_LIST_URL = "https://raw.githubusercontent.com/Johan319/Bans-files/refs/heads/main/banfiles"
+Shared.BAN_LIST_URL = "http://192.168.18.33:8787/bans"
 -- Rank file JSON: {"ranks":[{"id":123,"rank":3,"label":"Admin","premium":false}]}
-Shared.RANK_LIST_URL = "https://raw.githubusercontent.com/Johan319/ranks-files/refs/heads/main/rank%20files"
+Shared.RANK_LIST_URL = "http://192.168.18.33:8787/ranks"
 -- Full script .lua raw URL — downloads AdminPanel_latest.lua on load (does not auto-execute)
 Shared.SCRIPT_URL = "https://raw.githubusercontent.com/Johan319/Adminpanel-2.5-Version-/refs/heads/main/adminpanel"
+-- Termux / auto API base (no trailing slash). Example: "http://YOUR-IP:8787"
+-- When set, ;ban ;kick ;permrank POST here so every script user gets updates automatically.
+Shared.MOD_API_URL = "http://192.168.18.33:8787"
 local SCRIPT_BAN_FILE = "AdminPanel_script_bans.json"
 local function loadScriptBans()
     Shared.scriptBans = {}
@@ -438,6 +441,49 @@ Shared.copyModerationJSON = function()
         elseif toclipboard then toclipboard(textOut) end
     end)
     return textOut
+end
+
+-- POST JSON to Termux / MOD API so bans & ranks auto-sync
+local function httpRequest(method, url, body)
+    local result = nil
+    pcall(function()
+        if syn and syn.request then
+            result = syn.request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        elseif http_request then
+            result = http_request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        elseif request then
+            result = request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        end
+    end)
+    return result
+end
+
+Shared.pushModApi = function(path, payload)
+    local base = tostring(Shared.MOD_API_URL or "")
+    if base == "" then return false, "MOD_API_URL not set" end
+    local url = base:gsub("/$", "") .. path
+    local body = HttpService:JSONEncode(payload or {})
+    local res = httpRequest("POST", url, body)
+    if res and (res.Success or res.StatusCode == 200 or res.StatusCode == 201) then
+        return true
+    end
+    return false, "API push failed"
+end
+
+Shared.syncBansToApi = function()
+    local bans = {}
+    for _, v in pairs(Shared.scriptBans or {}) do
+        bans[#bans + 1] = { id = v.id, name = v.name, reason = v.reason }
+    end
+    return Shared.pushModApi("/setbans", { bans = bans })
+end
+
+Shared.syncRanksToApi = function()
+    local ranks = {}
+    if Shared._exportRanks then
+        for _, r in ipairs(Shared._exportRanks()) do ranks[#ranks + 1] = r end
+    end
+    return Shared.pushModApi("/setranks", { ranks = ranks })
 end
 
 if type(Shared.SCRIPT_URL) == "string" and Shared.SCRIPT_URL ~= "" then
@@ -5979,12 +6025,17 @@ local CommandsPage = (function()
                 at = os.time(),
             }
             if Shared.saveScriptBans then Shared.saveScriptBans() end
-            -- also stamp into HARD list in THIS session (only this file run)
             Shared.HARD_SCRIPT_BANS = Shared.HARD_SCRIPT_BANS or {}
             Shared.HARD_SCRIPT_BANS[uid] = reason
+            local apiOk = false
+            if Shared.syncBansToApi then apiOk = Shared.syncBansToApi() end
+            if Shared.pushModApi then
+                pcall(Shared.pushModApi, "/ban", { id = uid, name = name, reason = reason })
+            end
             return true, string.format(
-                "Banned %s (%d) from this panel. They are NOT removed from the Roblox server. When THEY run this script, they get kicked — put this in Shared.HARD_SCRIPT_BANS so every copy enforces it:\n  [%d] = %q",
-                ascii(name), uid, uid, reason
+                "Banned %s (%d) from the panel.%s Their script will kick them when it checks the ban list.",
+                ascii(name), uid,
+                apiOk and " Synced to MOD API." or (tostring(Shared.MOD_API_URL or "") ~= "" and " API sync failed — check Termux." or " Set Shared.MOD_API_URL for auto-sync.")
             )
         end,
     })
@@ -5997,7 +6048,6 @@ local CommandsPage = (function()
             if not a[1] then return false, "Usage: unban [user/id]" end
             local uid, name = resolveTarget(a[1])
             if not uid then
-                -- allow raw id even if not in server
                 uid = tonumber(a[1])
                 name = tostring(a[1])
                 if not uid then return false, "Invalid user" end
@@ -6006,15 +6056,21 @@ local CommandsPage = (function()
                 return false, "That user is not script-banned"
             end
             Shared.scriptBans[tostring(uid)] = nil
+            if Shared.HARD_SCRIPT_BANS then
+                Shared.HARD_SCRIPT_BANS[uid] = nil
+                Shared.HARD_SCRIPT_BANS[tostring(uid)] = nil
+            end
             if Shared.saveScriptBans then Shared.saveScriptBans() end
-            return true, "Script-unbanned " .. tostring(name) .. " (" .. tostring(uid) .. ")"
+            if Shared.syncBansToApi then pcall(Shared.syncBansToApi) end
+            if Shared.pushModApi then pcall(Shared.pushModApi, "/unban", { id = uid }) end
+            return true, "Unbanned " .. tostring(name) .. " (" .. tostring(uid) .. ")"
         end,
     })
 
     addCmd({
         name = "kick", aliases = { "scriptkick", "skick" }, rank = 6,
         display = "%Pkick [user/id] [reason]",
-        desc = "Owner: ban from script — they are kicked the moment they execute this panel",
+        desc = "Owner: ban from script — they are kicked when their panel loads the ban list",
         fn = function(a)
             if not a[1] then return false, "Usage: kick [user/id] [reason]" end
             local uid, name = resolveTarget(a[1])
@@ -6031,13 +6087,17 @@ local CommandsPage = (function()
             if Shared.saveScriptBans then Shared.saveScriptBans() end
             Shared.HARD_SCRIPT_BANS = Shared.HARD_SCRIPT_BANS or {}
             Shared.HARD_SCRIPT_BANS[uid] = reason
+            local apiOk = false
+            if Shared.syncBansToApi then apiOk = Shared.syncBansToApi() end
+            if Shared.pushModApi then pcall(Shared.pushModApi, "/ban", { id = uid, name = name, reason = reason }) end
             if uid == LP.UserId then
                 pcall(function() LP:Kick("Script kicked: " .. reason) end)
                 return true, "Kicked yourself"
             end
             return true, string.format(
-                "Cannot force-kick %s from the Roblox server (client script limit). They are banned from THIS panel — kicked only when they execute the script. Add to HARD_SCRIPT_BANS: [%d] = %q",
-                ascii(name), uid, reason
+                "Kick/ban recorded for %s (%d).%s They leave the panel when their script pulls the ban list (not a Roblox server kick).",
+                ascii(name), uid,
+                apiOk and " Synced to MOD API." or ""
             )
         end,
     })
@@ -6498,8 +6558,14 @@ local CommandsPage = (function()
             syncMyGrants()
             local saved = saveSettings()
             pushRankToTarget(uid, "perm", role)
+            if Shared.syncRanksToApi then pcall(Shared.syncRanksToApi) end
+            if Shared.pushModApi then
+                pcall(Shared.pushModApi, "/rank", {
+                    id = uid, rank = role.rank, label = role.label, premium = role.premium and true or false,
+                })
+            end
             return true, ascii(name) .. " is now " .. role.label
-                .. (saved and " (saved on your PC)" or " (session only on your PC)")
+                .. (saved and " (saved)" or "")
                 .. noteFor(uid)
         end,
     })
@@ -6521,6 +6587,8 @@ local CommandsPage = (function()
             syncMyGrants()
             saveSettings()
             pushRankToTarget(uid, "remove_perm", nil)
+            if Shared.syncRanksToApi then pcall(Shared.syncRanksToApi) end
+            if Shared.pushModApi then pcall(Shared.pushModApi, "/unrank", { id = uid }) end
             return true, "Removed the saved rank from " .. ascii(name)
         end,
     })
