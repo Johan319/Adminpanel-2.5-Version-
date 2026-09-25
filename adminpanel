@@ -221,11 +221,11 @@ Shared.HARD_SCRIPT_BANS = {
 }
 -- Remote auto-update URLs (raw text / raw gist). Leave "" to disable.
 -- Ban file JSON:  {"bans":[{"id":123,"reason":"abuse"}]}
-Shared.BAN_LIST_URL = ""
+Shared.BAN_LIST_URL = "https://raw.githubusercontent.com/Johan319/Bans-files/refs/heads/main/banfiles"
 -- Rank file JSON: {"ranks":[{"id":123,"rank":3,"label":"Admin","premium":false}]}
-Shared.RANK_LIST_URL = ""
+Shared.RANK_LIST_URL = "https://raw.githubusercontent.com/Johan319/ranks-files/refs/heads/main/rank%20files"
 -- Full script .lua raw URL — downloads AdminPanel_latest.lua on load (does not auto-execute)
-Shared.SCRIPT_URL = ""
+Shared.SCRIPT_URL = "https://raw.githubusercontent.com/Johan319/Adminpanel-2.5-Version-/refs/heads/main/adminpanel"
 local SCRIPT_BAN_FILE = "AdminPanel_script_bans.json"
 local function loadScriptBans()
     Shared.scriptBans = {}
