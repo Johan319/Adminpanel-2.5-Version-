@@ -553,13 +553,99 @@ Shared.supportedGamesListeners = {}
 Shared.locks = {}
 Shared.listeners = {}
 
+Shared._lastRank = Shared._lastRank or 0
+Shared._lastPremium = Shared._lastPremium or false
+
+function Shared.playUnlockAnim(features)
+    features = features or { "Gui Builder", "Ai Assistant" }
+    task.spawn(function()
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "AP_UnlockAnim"
+        sg.ResetOnSpawn = false
+        sg.IgnoreGuiInset = true
+        sg.DisplayOrder = 300
+        sg.Parent = CoreGui
+        local dim = Instance.new("Frame", sg)
+        dim.BackgroundColor3 = Color3.new(0, 0, 0)
+        dim.BackgroundTransparency = 1
+        dim.Size = UDim2.new(1, 0, 1, 0)
+        dim.ZIndex = 1
+        local card = Instance.new("Frame", sg)
+        card.AnchorPoint = Vector2.new(0.5, 0.5)
+        card.Position = UDim2.new(0.5, 0, 0.5, 0)
+        card.Size = UDim2.new(0, 0, 0, 0)
+        card.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
+        card.BorderSizePixel = 0
+        card.ZIndex = 2
+        corner(card, 16)
+        stroke(card, Accent, 1.5, 0.2)
+        local sc = Instance.new("UIScale", card)
+        sc.Scale = 0.6
+        local lock = Instance.new("TextLabel", card)
+        lock.BackgroundTransparency = 1
+        lock.Size = UDim2.new(1, 0, 0, 50)
+        lock.Position = UDim2.new(0, 0, 0, 16)
+        lock.Font = Enum.Font.GothamBold
+        lock.Text = "🔓"
+        lock.TextSize = 36
+        lock.ZIndex = 3
+        local title = Instance.new("TextLabel", card)
+        title.BackgroundTransparency = 1
+        title.Position = UDim2.new(0, 12, 0, 70)
+        title.Size = UDim2.new(1, -24, 0, 28)
+        title.Font = Enum.Font.GothamBold
+        title.Text = "UNLOCKED"
+        title.TextColor3 = Accent
+        title.TextSize = 20
+        title.ZIndex = 3
+        local sub = Instance.new("TextLabel", card)
+        sub.BackgroundTransparency = 1
+        sub.Position = UDim2.new(0, 12, 0, 100)
+        sub.Size = UDim2.new(1, -24, 0, 50)
+        sub.Font = Enum.Font.Gotham
+        sub.Text = table.concat(features, "  •  ")
+        sub.TextColor3 = TextHi
+        sub.TextSize = 13
+        sub.TextWrapped = true
+        sub.ZIndex = 3
+        TweenService:Create(dim, TweenInfo.new(0.35), { BackgroundTransparency = 0.45 }):Play()
+        TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 280, 0, 160),
+        }):Play()
+        TweenService:Create(sc, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+        task.wait(2.4)
+        TweenService:Create(dim, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
+        TweenService:Create(sc, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.7 }):Play()
+        TweenService:Create(card, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
+        task.wait(0.4)
+        if sg.Parent then sg:Destroy() end
+    end)
+end
+
 function Shared.recompute()
+    local prevRank = Shared._lastRank or Shared.rank or 0
+    local prevPrem = Shared._lastPremium or false
     Shared.rank = math.max(Shared.baseRank, Shared.grantRank or 0)
     Shared.premium = Shared.basePremium or Shared.grantPremium
     for _, lock in ipairs(Shared.locks) do
         if lock.overlay.Parent then lock.overlay.Visible = lock.check() end
     end
     for _, f in ipairs(Shared.listeners) do pcall(f) end
+    -- unlock animation when Premium / high rank first turns on
+    local unlocked = {}
+    if Shared.premium and not prevPrem then
+        unlocked[#unlocked + 1] = "Gui Builder 🔓"
+        unlocked[#unlocked + 1] = "Ai Assistant 🔓"
+    end
+    if Shared.rank > prevRank and Shared.rank >= 2 then
+        unlocked[#unlocked + 1] = (Shared.RANK_NAMES[Shared.rank] or "Rank") .. " 🔓"
+    end
+    if #unlocked > 0 and Shared._rankReady then
+        Shared.playUnlockAnim(unlocked)
+    end
+    Shared._lastRank = Shared.rank
+    Shared._lastPremium = Shared.premium
+    Shared._rankReady = true
 end
 
 -- dark overlay with a padlock, blocks the page underneath
@@ -4817,6 +4903,7 @@ local CommandsPage = (function()
         else
             return
         end
+        Shared._rankReady = true
         syncMyGrants()
         if logLine then
             logLine("Rank update applied from " .. tostring(data.fromName or data.from), "ok")
@@ -6082,6 +6169,41 @@ local CommandsPage = (function()
             end
             startXray()
             return true, "X-ray ON (run xray again to turn it off)"
+        end,
+    })
+
+    addCmd({
+        name = "to", aliases = { "goto", "teleport", "tp" }, rank = 2,
+        display = "%Pto [user/id]",
+        desc = "Mod: teleport to a player",
+        fn = function(a)
+            if not a[1] then return false, "Usage: to / goto / teleport [user/id]" end
+            local uid, name = resolveTarget(a[1])
+            if not uid then return false, name end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, ascii(name) .. " is not in this server" end
+            local tChar = plr.Character
+            local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+            if not tRoot then return false, ascii(name) .. " has no character" end
+            local char = LP.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if not root then return false, "You have no character" end
+            root.CFrame = tRoot.CFrame * CFrame.new(0, 0, 3)
+            return true, "Teleported to " .. ascii(name)
+        end,
+    })
+
+    addCmd({
+        name = "panel", aliases = { "adminpanel", "openpanel" }, rank = 1,
+        display = "%Ppanel",
+        desc = "Member: open the Admin Panel",
+        fn = function()
+            if Shared.openPanel then
+                Shared.openPanel()
+                return true, "Admin Panel opened"
+            end
+            Shared._wantOpenPanel = true
+            return true, "Opening Admin Panel..."
         end,
     })
 
@@ -11217,6 +11339,460 @@ do
     table.insert(Shared.supportedGamesListeners, refreshSupportedUI)
 end
 
+
+-- ===================== VISUAL (Freecam) =====================
+local VisualPage
+do
+    VisualPage = Instance.new("ScrollingFrame", Content)
+    VisualPage.Name = "VisualPage"
+    VisualPage.BackgroundTransparency = 1
+    VisualPage.BorderSizePixel = 0
+    VisualPage.Size = UDim2.new(1, 0, 1, 0)
+    VisualPage.CanvasSize = UDim2.new(0, 0, 0, 0)
+    VisualPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    VisualPage.ScrollBarThickness = 3
+    VisualPage.ScrollBarImageColor3 = Accent
+    VisualPage.Visible = false
+    VisualPage.ZIndex = 3
+
+    local lay = Instance.new("UIListLayout", VisualPage)
+    lay.Padding = UDim.new(0, 10)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", VisualPage)
+    pad.PaddingTop = UDim.new(0, 8)
+    pad.PaddingBottom = UDim.new(0, 12)
+    pad.PaddingLeft = UDim.new(0, 4)
+    pad.PaddingRight = UDim.new(0, 4)
+
+    local title = lbl(VisualPage, "VISUAL", 15, TextHi)
+    title.LayoutOrder = 1
+    title.Size = UDim2.new(1, 0, 0, 20)
+    local sub = lbl(VisualPage, "Freecam  •  controls stay in this panel", 10, TextMid, Enum.Font.Gotham)
+    sub.LayoutOrder = 2
+    sub.Size = UDim2.new(1, 0, 0, 16)
+
+    local card = Instance.new("Frame", VisualPage)
+    card.LayoutOrder = 3
+    card.BackgroundColor3 = Panel
+    card.BorderSizePixel = 0
+    card.Size = UDim2.new(1, 0, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.ZIndex = 4
+    corner(card, 12)
+    stroke(card, StrokeCol, 1, 0.4)
+    local cPad = Instance.new("UIPadding", card)
+    cPad.PaddingTop = UDim.new(0, 12)
+    cPad.PaddingBottom = UDim.new(0, 12)
+    cPad.PaddingLeft = UDim.new(0, 12)
+    cPad.PaddingRight = UDim.new(0, 12)
+    local cLay = Instance.new("UIListLayout", card)
+    cLay.Padding = UDim.new(0, 8)
+    cLay.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local head = lbl(card, "FREECAM", 12, Accent, Enum.Font.GothamBold)
+    head.LayoutOrder = 1
+    head.Size = UDim2.new(1, 0, 0, 18)
+
+    -- Freecam state (no floating CAM button — panel only)
+    local ContextActionService = game:GetService("ContextActionService")
+    local camera = workspace.CurrentCamera
+    local fc = {
+        active = false,
+        flySpeed = 100,
+        minSpeed = 10,
+        maxSpeed = 1000,
+        speedStep = 10,
+        touchSensitivity = 0.35,
+        mouseSensitivity = 0.20,
+        camYaw = 0,
+        camPitch = 0,
+        camPos = Vector3.zero,
+        rememberPosition = false,
+        savedPos = nil,
+        savedPitch = nil,
+        savedYaw = nil,
+        frozenCFrame = nil,
+        originalAnchored = false,
+        fallingAfterTeleport = false,
+        teleportFallStartTime = 0,
+        renderConnection = nil,
+        keysDown = { W = false, A = false, S = false, D = false, E = false, Q = false, LeftShift = false },
+        moveTouchId = nil,
+        lookTouchId = nil,
+        joystickCenter = Vector2.zero,
+        joystickVector = Vector2.zero,
+        joystickMaxRadius = 50,
+        controls = nil,
+        conns = {},
+        minimized = false,
+    }
+    local interceptedKeyCodes = {
+        [Enum.KeyCode.W] = "W", [Enum.KeyCode.A] = "A", [Enum.KeyCode.S] = "S", [Enum.KeyCode.D] = "D",
+        [Enum.KeyCode.E] = "E", [Enum.KeyCode.Q] = "Q",
+        [Enum.KeyCode.LeftShift] = "LeftShift", [Enum.KeyCode.RightShift] = "LeftShift",
+    }
+    pcall(function()
+        local ps = LP:WaitForChild("PlayerScripts", 2)
+        local pm = ps and ps:FindFirstChild("PlayerModule")
+        if pm then fc.controls = require(pm):GetControls() end
+    end)
+
+    -- Optional minimal joystick only while freecam on (not the CAM toggle)
+    local joyGui = Instance.new("ScreenGui")
+    joyGui.Name = "AP_VisualFreecam"
+    joyGui.ResetOnSpawn = false
+    joyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    pcall(function() joyGui.Parent = CoreGui end)
+    if not joyGui.Parent then joyGui.Parent = LP:WaitForChild("PlayerGui") end
+
+    local joystickFrame = Instance.new("Frame", joyGui)
+    joystickFrame.Name = "DynamicJoystick"
+    joystickFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    joystickFrame.Size = UDim2.new(0, 110, 0, 110)
+    joystickFrame.Visible = false
+    joystickFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+    joystickFrame.BackgroundTransparency = 0.45
+    joystickFrame.BorderSizePixel = 0
+    corner(joystickFrame, 55)
+    stroke(joystickFrame, Accent, 1.2, 0.35)
+    local joystickKnob = Instance.new("Frame", joystickFrame)
+    joystickKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    joystickKnob.Size = UDim2.new(0, 46, 0, 46)
+    joystickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+    joystickKnob.BackgroundColor3 = Color3.fromRGB(30, 35, 45)
+    joystickKnob.BorderSizePixel = 0
+    corner(joystickKnob, 23)
+    stroke(joystickKnob, Color3.fromRGB(255, 255, 255), 1, 0.4)
+
+    local statusLbl = lbl(card, "Status: OFF", 11, TextMid, Enum.Font.Gotham)
+    statusLbl.LayoutOrder = 2
+    statusLbl.Size = UDim2.new(1, 0, 0, 16)
+
+    local function panelBtn(parent, text, order, bg, tc)
+        local b = Instance.new("TextButton", parent)
+        b.LayoutOrder = order
+        b.BackgroundColor3 = bg or Panel
+        b.BorderSizePixel = 0
+        b.Size = UDim2.new(1, 0, 0, 36)
+        b.Font = Enum.Font.GothamBold
+        b.Text = text
+        b.TextColor3 = tc or TextHi
+        b.TextSize = 13
+        b.AutoButtonColor = false
+        b.ZIndex = 5
+        corner(b, 10)
+        stroke(b, StrokeCol, 1, 0.4)
+        local sc = Instance.new("UIScale", b)
+        sc.Scale = 1
+        b.MouseButton1Down:Connect(function()
+            TweenService:Create(sc, TweenInfo.new(0.08), { Scale = 0.94 }):Play()
+        end)
+        b.MouseButton1Up:Connect(function()
+            TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+        end)
+        return b
+    end
+
+    local toggleBtn = panelBtn(card, "Freecam: OFF", 3, Panel, TextHi)
+    local speedRow = Instance.new("Frame", card)
+    speedRow.LayoutOrder = 4
+    speedRow.BackgroundTransparency = 1
+    speedRow.Size = UDim2.new(1, 0, 0, 34)
+    speedRow.ZIndex = 5
+    local speedMinus = panelBtn(speedRow, "−", 1, Panel, TextHi)
+    speedMinus.Size = UDim2.new(0, 40, 1, 0)
+    speedMinus.Position = UDim2.new(0, 0, 0, 0)
+    speedMinus.LayoutOrder = nil
+    local speedLabel = lbl(speedRow, "SPD: 100", 12, TextHi, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
+    speedLabel.Position = UDim2.new(0, 48, 0, 0)
+    speedLabel.Size = UDim2.new(1, -96, 1, 0)
+    speedLabel.ZIndex = 6
+    local speedPlus = panelBtn(speedRow, "+", 1, Panel, TextHi)
+    speedPlus.Size = UDim2.new(0, 40, 1, 0)
+    speedPlus.Position = UDim2.new(1, -40, 0, 0)
+    speedPlus.AnchorPoint = Vector2.new(0, 0)
+
+    local memBtn = panelBtn(card, "Remember Pos: OFF", 5, Panel, TextMid)
+    local tpBtn = panelBtn(card, "Teleport to Cam", 6, Accent, Color3.fromRGB(10, 20, 22))
+    local minBtn = panelBtn(card, "Minimized: OFF", 7, Panel, TextMid)
+
+    local function updateSpeedLabel()
+        speedLabel.Text = "SPD: " .. tostring(fc.flySpeed)
+    end
+
+    local function handleKeyAction(actionName, inputState, inputObject)
+        if not fc.active then return Enum.ContextActionResult.Pass end
+        if inputObject and inputObject.KeyCode then
+            local keyName = interceptedKeyCodes[inputObject.KeyCode]
+            if keyName then
+                fc.keysDown[keyName] = (inputState == Enum.UserInputState.Begin)
+            end
+        end
+        return Enum.ContextActionResult.Sink
+    end
+
+    local function startFreecam()
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not char or not hum or not root then return false end
+        camera = workspace.CurrentCamera
+        pcall(function() hum:UnequipTools() end)
+        pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false) end)
+        fc.fallingAfterTeleport = false
+        fc.originalAnchored = root.Anchored
+        fc.frozenCFrame = root.CFrame
+        root.Anchored = true
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        if fc.controls then pcall(function() fc.controls:Disable() end) end
+        local touchGui = LP:FindFirstChild("PlayerGui") and LP.PlayerGui:FindFirstChild("TouchGui")
+        if touchGui then touchGui.Enabled = false end
+        ContextActionService:BindActionAtPriority(
+            "AP_VisualFreecamSink", handleKeyAction, false, 2000000,
+            Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
+            Enum.KeyCode.E, Enum.KeyCode.Q, Enum.KeyCode.Space,
+            Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift,
+            Enum.PlayerActions.CharacterForward, Enum.PlayerActions.CharacterBackward,
+            Enum.PlayerActions.CharacterLeft, Enum.PlayerActions.CharacterRight,
+            Enum.PlayerActions.CharacterJump
+        )
+        if fc.rememberPosition and fc.savedPos then
+            fc.camPos, fc.camPitch, fc.camYaw = fc.savedPos, fc.savedPitch, fc.savedYaw
+        else
+            local currentCF = camera.CFrame
+            fc.camPos = currentCF.Position
+            local x, y = currentCF:ToOrientation()
+            fc.camPitch, fc.camYaw = math.deg(x), math.deg(y)
+        end
+        camera.CameraType = Enum.CameraType.Scriptable
+        if fc.renderConnection then fc.renderConnection:Disconnect() end
+        fc.renderConnection = RunService.RenderStepped:Connect(function(dt)
+            camera = workspace.CurrentCamera
+            char = LP.Character
+            root = char and char:FindFirstChild("HumanoidRootPart")
+            if char and root then
+                if fc.fallingAfterTeleport then
+                    local elapsed = tick() - fc.teleportFallStartTime
+                    local vel = root.AssemblyLinearVelocity
+                    local groundParams = RaycastParams.new()
+                    groundParams.FilterType = Enum.RaycastFilterType.Exclude
+                    groundParams.FilterDescendantsInstances = { char }
+                    local castDist = (root.Size.Y / 2) + 0.35
+                    local groundHit = workspace:Raycast(root.Position, Vector3.new(0, -castDist, 0), groundParams)
+                    if elapsed > 0.15 and ((groundHit and math.abs(vel.Y) < 1.5) or elapsed > 8) then
+                        fc.fallingAfterTeleport = false
+                        root.Anchored = true
+                        root.AssemblyLinearVelocity = Vector3.zero
+                        root.AssemblyAngularVelocity = Vector3.zero
+                        fc.frozenCFrame = root.CFrame
+                    end
+                else
+                    root.CFrame = fc.frozenCFrame
+                    root.Anchored = true
+                    root.AssemblyLinearVelocity = Vector3.zero
+                    root.AssemblyAngularVelocity = Vector3.zero
+                end
+            end
+            local rotCFrame = CFrame.Angles(0, math.rad(fc.camYaw), 0) * CFrame.Angles(math.rad(fc.camPitch), 0, 0)
+            local moveVector = Vector3.zero
+            if fc.joystickVector.Magnitude > 0.05 then
+                moveVector = moveVector + rotCFrame.RightVector * fc.joystickVector.X + rotCFrame.LookVector * fc.joystickVector.Y
+            end
+            local kbF, kbR, kbU = 0, 0, 0
+            if fc.keysDown.W then kbF = kbF + 1 end
+            if fc.keysDown.S then kbF = kbF - 1 end
+            if fc.keysDown.D then kbR = kbR + 1 end
+            if fc.keysDown.A then kbR = kbR - 1 end
+            if fc.keysDown.E then kbU = kbU + 1 end
+            if fc.keysDown.Q then kbU = kbU - 1 end
+            if kbF ~= 0 or kbR ~= 0 or kbU ~= 0 then
+                moveVector = moveVector + rotCFrame.LookVector * kbF + rotCFrame.RightVector * kbR + Vector3.new(0, 1, 0) * kbU
+            end
+            if moveVector.Magnitude > 0 then
+                local mult = fc.keysDown.LeftShift and 2 or 1
+                fc.camPos = fc.camPos + moveVector.Unit * (fc.flySpeed * mult * dt)
+            end
+            camera.CFrame = CFrame.new(fc.camPos) * rotCFrame
+        end)
+        return true
+    end
+
+    local function stopFreecam()
+        if fc.renderConnection then fc.renderConnection:Disconnect(); fc.renderConnection = nil end
+        pcall(function() ContextActionService:UnbindAction("AP_VisualFreecamSink") end)
+        pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true) end)
+        fc.moveTouchId, fc.lookTouchId = nil, nil
+        fc.joystickVector = Vector2.zero
+        joystickFrame.Visible = false
+        if fc.controls then pcall(function() fc.controls:Enable() end) end
+        local touchGui = LP:FindFirstChild("PlayerGui") and LP.PlayerGui:FindFirstChild("TouchGui")
+        if touchGui then touchGui.Enabled = true end
+        for k in pairs(fc.keysDown) do fc.keysDown[k] = false end
+        if fc.rememberPosition then
+            fc.savedPos, fc.savedPitch, fc.savedYaw = fc.camPos, fc.camPitch, fc.camYaw
+        end
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if hum then workspace.CurrentCamera.CameraSubject = hum end
+        if root then
+            root.Anchored = fc.originalAnchored
+            if not fc.fallingAfterTeleport then
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+        fc.fallingAfterTeleport = false
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+    end
+
+    local function setFreecam(on)
+        if on == fc.active then return end
+        if on then
+            if not startFreecam() then
+                if showToast then showToast("Freecam", "No character", "error") end
+                return
+            end
+            fc.active = true
+            toggleBtn.Text = "Freecam: ON"
+            statusLbl.Text = "Status: ON  •  WASD move  Q/E up/down  RMB look"
+            statusLbl.TextColor3 = Accent
+            TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundColor3 = Accent, TextColor3 = Color3.fromRGB(10, 20, 22) }):Play()
+            local sc = toggleBtn:FindFirstChildOfClass("UIScale")
+            if sc then
+                sc.Scale = 0.9
+                TweenService:Create(sc, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+            end
+        else
+            fc.active = false
+            stopFreecam()
+            toggleBtn.Text = "Freecam: OFF"
+            statusLbl.Text = "Status: OFF"
+            statusLbl.TextColor3 = TextMid
+            TweenService:Create(toggleBtn, TweenInfo.new(0.2), { BackgroundColor3 = Panel, TextColor3 = TextHi }):Play()
+        end
+    end
+
+    toggleBtn.MouseButton1Click:Connect(function() setFreecam(not fc.active) end)
+
+    local function holdStep(btn, delta)
+        local holding = false
+        btn.MouseButton1Down:Connect(function()
+            holding = true
+            fc.flySpeed = math.clamp(fc.flySpeed + delta, fc.minSpeed, fc.maxSpeed)
+            updateSpeedLabel()
+            task.spawn(function()
+                task.wait(0.3)
+                while holding do
+                    fc.flySpeed = math.clamp(fc.flySpeed + delta, fc.minSpeed, fc.maxSpeed)
+                    updateSpeedLabel()
+                    task.wait(0.06)
+                end
+            end)
+        end)
+        local function rel() holding = false end
+        btn.MouseButton1Up:Connect(rel)
+        btn.MouseLeave:Connect(rel)
+    end
+    holdStep(speedMinus, -fc.speedStep)
+    holdStep(speedPlus, fc.speedStep)
+
+    memBtn.MouseButton1Click:Connect(function()
+        fc.rememberPosition = not fc.rememberPosition
+        if fc.rememberPosition then
+            memBtn.Text = "Remember Pos: ON"
+            memBtn.TextColor3 = Accent
+        else
+            memBtn.Text = "Remember Pos: OFF"
+            memBtn.TextColor3 = TextMid
+            fc.savedPos, fc.savedPitch, fc.savedYaw = nil, nil, nil
+        end
+    end)
+
+    tpBtn.MouseButton1Click:Connect(function()
+        if not fc.active then
+            if showToast then showToast("Freecam", "Turn Freecam ON first", "info") end
+            return
+        end
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root and hum then
+            local targetCFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position) * CFrame.Angles(0, math.rad(fc.camYaw), 0)
+            fc.fallingAfterTeleport = true
+            fc.teleportFallStartTime = tick()
+            root.Anchored = false
+            root.CFrame = targetCFrame
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
+        end
+    end)
+
+    minBtn.MouseButton1Click:Connect(function()
+        fc.minimized = not fc.minimized
+        -- minimize only hides speed/mem/tp rows; toggle stays
+        speedRow.Visible = not fc.minimized
+        memBtn.Visible = not fc.minimized
+        tpBtn.Visible = not fc.minimized
+        minBtn.Text = fc.minimized and "Minimized: ON" or "Minimized: OFF"
+        minBtn.TextColor3 = fc.minimized and Accent or TextMid
+    end)
+
+    -- Mobile look / move while freecam
+    table.insert(fc.conns, UserInputService.InputBegan:Connect(function(input, gp)
+        if not fc.active then return end
+        if input.UserInputType == Enum.UserInputType.Touch and not gp then
+            local vp = workspace.CurrentCamera.ViewportSize
+            local touchPos = Vector2.new(input.Position.X, input.Position.Y)
+            if touchPos.X < vp.X * 0.48 and not fc.moveTouchId then
+                fc.moveTouchId = input
+                fc.joystickCenter = touchPos
+                joystickFrame.Position = UDim2.new(0, touchPos.X, 0, touchPos.Y)
+                joystickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+                fc.joystickVector = Vector2.zero
+                joystickFrame.Visible = true
+            elseif touchPos.X >= vp.X * 0.48 and not fc.lookTouchId then
+                fc.lookTouchId = input
+            end
+        end
+    end))
+    table.insert(fc.conns, UserInputService.InputChanged:Connect(function(input)
+        if not fc.active then return end
+        if input.UserInputType == Enum.UserInputType.Touch then
+            if input == fc.moveTouchId then
+                local currentPos = Vector2.new(input.Position.X, input.Position.Y)
+                local delta = currentPos - fc.joystickCenter
+                if delta.Magnitude > fc.joystickMaxRadius then delta = delta.Unit * fc.joystickMaxRadius end
+                joystickKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
+                fc.joystickVector = Vector2.new(delta.X / fc.joystickMaxRadius, -delta.Y / fc.joystickMaxRadius)
+            elseif input == fc.lookTouchId then
+                local d = input.Delta
+                fc.camYaw = fc.camYaw - (d.X * fc.touchSensitivity)
+                fc.camPitch = math.clamp(fc.camPitch - (d.Y * fc.touchSensitivity), -89, 89)
+            end
+        elseif input.UserInputType == Enum.UserInputType.MouseMovement then
+            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+                local d = input.Delta
+                fc.camYaw = fc.camYaw - (d.X * fc.mouseSensitivity)
+                fc.camPitch = math.clamp(fc.camPitch - (d.Y * fc.mouseSensitivity), -89, 89)
+            end
+        end
+    end))
+    table.insert(fc.conns, UserInputService.InputEnded:Connect(function(input)
+        if input == fc.moveTouchId then
+            fc.moveTouchId = nil
+            fc.joystickVector = Vector2.zero
+            joystickFrame.Visible = false
+        elseif input == fc.lookTouchId then
+            fc.lookTouchId = nil
+        end
+    end))
+
+    Shared.setFreecam = setFreecam
+end
+
 -- ===================== CREDITS =====================
 local CreditsPage
 do
@@ -11465,11 +12041,12 @@ local Pages = {
     Overview         = Overview,
     Players          = PlayersPage,
     ["Info Players"] = InfoPage,
+    ["Support Games"] = SupportedGamesPage,
+    Visual           = VisualPage,
     ScriptBlox       = SBloxPage,
     Commands         = CommandsPage,
     ["Ai Assistant"] = AiPage,
     ["Gui Builder"]  = BuilderPage,
-    ["Support Games"] = SupportedGamesPage,
     Credits          = CreditsPage,
 }
 
@@ -11670,6 +12247,13 @@ local function openPanel()
     TweenService:Create(Win,
         TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
         { Size = baseSize, Position = basePos }):Play()
+    local open = gui:FindFirstChild("OpenButton")
+    if open then open.Visible = false end
+end
+Shared.openPanel = openPanel
+if Shared._wantOpenPanel then
+    Shared._wantOpenPanel = false
+    task.defer(openPanel)
 end
 
 -- Open button sits in the top bar (Settings row) like the shield icon in Roblox UI
