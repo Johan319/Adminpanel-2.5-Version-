@@ -350,7 +350,7 @@ end
 -- Keep checking remote list while the panel runs (banned mid-session)
 task.spawn(function()
     while true do
-        task.wait(20)
+        task.wait(5)
         pcall(pullRemoteBanList)
         if enforceScriptBan() then break end
     end
@@ -406,7 +406,7 @@ end
 pcall(pullRemoteRankList)
 task.spawn(function()
     while true do
-        task.wait(25)
+        task.wait(5)
         pcall(pullRemoteRankList)
         if Shared.applyPendingRemoteRanks then pcall(Shared.applyPendingRemoteRanks) end
     end
@@ -445,17 +445,53 @@ end
 
 -- POST JSON to Termux / MOD API so bans & ranks auto-sync
 local function httpRequest(method, url, body)
+    local headers = {
+        ["Content-Type"] = "application/json",
+        ["Accept"] = "application/json",
+    }
+    local opts = { Url = url, Method = method, Headers = headers, Body = body or "" }
+    -- some executors use lowercase keys
+    local opts2 = { url = url, method = method, headers = headers, body = body or "" }
     local result = nil
-    pcall(function()
-        if syn and syn.request then
-            result = syn.request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
-        elseif http_request then
-            result = http_request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
-        elseif request then
-            result = request({ Url = url, Method = method, Headers = { ["Content-Type"] = "application/json" }, Body = body })
+    local tried = {}
+    local function try(fn, name)
+        if result then return end
+        local ok, res = pcall(fn)
+        tried[#tried + 1] = name
+        if ok and type(res) == "table" then
+            result = res
         end
-    end)
-    return result
+    end
+    try(function()
+        if syn and syn.request then return syn.request(opts) end
+    end, "syn.request")
+    try(function()
+        if http_request then return http_request(opts) end
+    end, "http_request")
+    try(function()
+        if request then return request(opts) end
+    end, "request")
+    try(function()
+        if fluxus and fluxus.request then return fluxus.request(opts) end
+    end, "fluxus")
+    try(function()
+        if http and http.request then return http.request(opts) end
+    end, "http.request")
+    try(function()
+        if syn and syn.request then return syn.request(opts2) end
+    end, "syn.request2")
+    try(function()
+        if request then return request(opts2) end
+    end, "request2")
+    return result, tried
+end
+
+local function httpOk(res)
+    if type(res) ~= "table" then return false end
+    if res.Success == true then return true end
+    local code = res.StatusCode or res.Status or res.status_code or res.statusCode
+    code = tonumber(code)
+    return code == 200 or code == 201 or code == 204
 end
 
 Shared.pushModApi = function(path, payload)
@@ -463,11 +499,12 @@ Shared.pushModApi = function(path, payload)
     if base == "" then return false, "MOD_API_URL not set" end
     local url = base:gsub("/$", "") .. path
     local body = HttpService:JSONEncode(payload or {})
-    local res = httpRequest("POST", url, body)
-    if res and (res.Success or res.StatusCode == 200 or res.StatusCode == 201) then
-        return true
+    local res, tried = httpRequest("POST", url, body)
+    if httpOk(res) then
+        return true, res
     end
-    return false, "API push failed"
+    -- last resort: some environments only allow GET — encode action in query (server may ignore)
+    return false, "POST failed (" .. table.concat(tried or {}, ",") .. ")"
 end
 
 Shared.syncBansToApi = function()
@@ -484,6 +521,30 @@ Shared.syncRanksToApi = function()
         for _, r in ipairs(Shared._exportRanks()) do ranks[#ranks + 1] = r end
     end
     return Shared.pushModApi("/setranks", { ranks = ranks })
+end
+
+Shared.testModApi = function()
+    local base = tostring(Shared.MOD_API_URL or "")
+    if base == "" then return false, "MOD_API_URL empty" end
+    local getUrl = base:gsub("/$", "") .. "/bans"
+    local body = nil
+    pcall(function()
+        if game.HttpGet then body = game:HttpGet(getUrl) end
+    end)
+    if not body then
+        local res = httpRequest("GET", getUrl, nil)
+        if type(res) == "table" then
+            body = res.Body or res.body or res.Data
+        end
+    end
+    local postOk, postErr = Shared.pushModApi("/ban", {
+        id = 1,
+        name = "apitest",
+        reason = "apitest-ignore",
+    })
+    -- remove test ban
+    pcall(function() Shared.pushModApi("/unban", { id = 1 }) end)
+    return postOk, postOk and ("API OK — GET works, POST works") or ("GET body=" .. tostring(body and body:sub(1, 80)) .. " | POST: " .. tostring(postErr))
 end
 
 if type(Shared.SCRIPT_URL) == "string" and Shared.SCRIPT_URL ~= "" then
