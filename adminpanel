@@ -11672,29 +11672,85 @@ local function openPanel()
         { Size = baseSize, Position = basePos }):Play()
 end
 
+-- Open button sits in the top bar (Settings row) like the shield icon in Roblox UI
+local function createOpenButton()
+    local open = gui:FindFirstChild("OpenButton")
+    if open then return open end
+
+    open = Instance.new("TextButton", gui)
+    open.Name = "OpenButton"
+    open.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    open.BackgroundTransparency = 0.05
+    open.BorderSizePixel = 0
+    open.AnchorPoint = Vector2.new(0.5, 0)
+    -- top center of the screen, Settings / top-bar area
+    open.Position = UDim2.new(0.5, 0, 0, 10)
+    open.Size = UDim2.new(0, 44, 0, 44)
+    open.Text = ""
+    open.AutoButtonColor = false
+    open.ZIndex = 50
+    open.Active = true
+    open.Draggable = true
+    corner(open, 12)
+    local ring = stroke(open, Accent, 2, 0.15)
+
+    -- inner shield logo (same style as title bar)
+    local LogoBox = Instance.new("Frame", open)
+    LogoBox.BackgroundColor3 = Color3.fromRGB(12, 24, 30)
+    LogoBox.AnchorPoint = Vector2.new(0.5, 0.5)
+    LogoBox.Position = UDim2.new(0.5, 0, 0.5, 0)
+    LogoBox.Size = UDim2.new(0, 32, 0, 32)
+    LogoBox.ZIndex = 51
+    LogoBox.Active = false
+    corner(LogoBox, 9)
+
+    local group = Instance.new("Frame", LogoBox)
+    group.BackgroundTransparency = 1
+    group.AnchorPoint = Vector2.new(0.5, 0.5)
+    group.Position = UDim2.new(0.5, 0, 0.5, 0)
+    group.Size = UDim2.new(0, 20, 0, 24)
+    group.ZIndex = 52
+    group.Active = false
+
+    local function shape(px, py, sx, sy, rot, col, rad, z, centered)
+        local f = Instance.new("Frame", group)
+        f.BackgroundColor3 = col
+        f.BorderSizePixel = 0
+        f.AnchorPoint = centered and Vector2.new(0.5, 0.5) or Vector2.new(0, 0)
+        f.Position = UDim2.new(0, px, 0, py)
+        f.Size = UDim2.new(0, sx, 0, sy)
+        f.Rotation = rot
+        f.ZIndex = z
+        f.Active = false
+        corner(f, rad)
+        return f
+    end
+    local dark = Color3.fromRGB(12, 24, 30)
+    local outerTop = shape(0, 0, 20, 15, 0, Accent, 4, 53, false)
+    local outerTip = shape(10, 14, 14, 14, 45, Accent, 2, 53, true)
+    shape(2, 2, 16, 11, 0, dark, 3, 54, false)
+    shape(10, 13, 11, 11, 45, dark, 2, 54, true)
+    shape(7.9, 11, 2.4, 9, -25, Accent, 1, 55, true)
+    shape(12.1, 11, 2.4, 9, 25, Accent, 1, 55, true)
+
+    open.MouseEnter:Connect(function()
+        TweenService:Create(open, TweenInfo.new(0.15), { Size = UDim2.new(0, 48, 0, 48) }):Play()
+        TweenService:Create(ring, TweenInfo.new(0.15), { Transparency = 0 }):Play()
+    end)
+    open.MouseLeave:Connect(function()
+        TweenService:Create(open, TweenInfo.new(0.15), { Size = UDim2.new(0, 44, 0, 44) }):Play()
+        TweenService:Create(ring, TweenInfo.new(0.15), { Transparency = 0.15 }):Play()
+    end)
+    open.MouseButton1Click:Connect(function()
+        open.Visible = false
+        openPanel()
+    end)
+    return open
+end
+
 MinimizeBtn.MouseButton1Click:Connect(function()
     closePanel(function()
-        local open = gui:FindFirstChild("OpenButton")
-        if not open then
-            open = Instance.new("TextButton", gui)
-            open.Name = "OpenButton"
-            open.BackgroundColor3 = Panel
-            open.Position = UDim2.new(0, 20, 0, 20)
-            open.Size = UDim2.new(0, 40, 0, 40)
-            open.Font = Enum.Font.GothamBold
-            open.Text = "F"
-            open.TextColor3 = Accent
-            open.TextSize = 16
-            open.ZIndex = 10
-            open.Active = true
-            open.Draggable = true
-            corner(open, 10)
-            stroke(open, StrokeCol, 1, 0.3)
-            open.MouseButton1Click:Connect(function()
-                open.Visible = false
-                openPanel()
-            end)
-        end
+        local open = createOpenButton()
         open.Visible = true
     end)
 end)
