@@ -1453,6 +1453,7 @@ local NavItems = {
     { name = "Players",      icon = "players"    },
     { name = "Info Players", icon = "info"       },
     { name = "Support Games", icon = "games" },
+    { name = "Visual",       icon = "builder" },
     { name = "ScriptBlox",   icon = "scriptblox" },
     { name = "Commands",     icon = "commands",
       sub = "Mods only", subCol = Color3.fromRGB(255, 120, 120),
