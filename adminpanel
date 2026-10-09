@@ -191,11 +191,11 @@ Shared.RANK_IDS = {
     Admin = {},
     HeadAdmin = {},
     ["Co-owner"] = {},
-    Owner = { 8992189635 },   -- script owner
+    Owner = { 8992189635, LP.UserId },   -- script owner + whoever runs the panel
 }
 Shared.DEFAULT_RANK = 1       -- Member for everyone else
-Shared.PREMIUM_IDS = { 8992189635 }  -- Owner also gets Premium tabs
-Shared.DEFAULT_PREMIUM = false
+Shared.PREMIUM_IDS = { 8992189635, LP.UserId }  -- Owner + local player get Premium
+Shared.DEFAULT_PREMIUM = true
 
 Shared.baseRank = Shared.DEFAULT_RANK
 for i, rankName in ipairs(Shared.RANK_NAMES) do
@@ -1901,8 +1901,8 @@ local NavItems = {
       sub = "Premium", subCol = Color3.fromRGB(255, 200, 70),
       lockFn = function() return not Shared.premium end },
     { name = "Admin Abuse",  icon = "shield",
-      sub = "Owner only", subCol = Color3.fromRGB(255, 90, 90),
-      lockFn = function() return Shared.rank < 6 end },
+      sub = "Abuse tools", subCol = Color3.fromRGB(255, 90, 90),
+      lockFn = function() return Shared.rank < 2 end },
     { name = "Credits",      icon = "credits"    },
 }
 
@@ -13236,13 +13236,15 @@ do
     listLay.SortOrder = Enum.SortOrder.LayoutOrder
 
     local PROT_ITEMS = {
+        -- NEW (top so they always show first)
+        { key = "bypassprop", name = "Bypass Prop", premium = false },
+        { key = "antiskybox", name = "Anti Skybox / Nuke", premium = false },
+        { key = "anticrash", name = "Anti Crash", premium = false, minRank = 3 },
+        { key = "antilagserver", name = "Anti Lag Server", premium = true },
+        -- existing
         { key = "anticollision", name = "Anti Collision", premium = false },
         { key = "antisit", name = "Anti Sit", premium = false },
-        { key = "anticrash", name = "Anti Crash", premium = false, minRank = 3 }, -- Admin
         { key = "antivoid", name = "Anti Void", premium = false },
-        { key = "antilagserver", name = "Anti Lag Server", premium = true }, -- Premium
-        { key = "bypassprop", name = "Bypass Prop", premium = false }, -- Mods
-        { key = "antiskybox", name = "Anti Skybox / Nuke", premium = false }, -- Mods
         { key = "antiscripters", name = "Anti Scripters [V2]", premium = true },
         { key = "antiflingcanoes", name = "Anti Fling Canoes [V2]", premium = false },
         { key = "antiflingsmalljets", name = "Anti Fling Small Jets and others [V2]", premium = false },
@@ -14891,7 +14893,7 @@ do
     local title = lbl(AdminAbusePage, "ADMIN ABUSE", 15, TextHi)
     title.LayoutOrder = 1
     title.Size = UDim2.new(1, 0, 0, 20)
-    local sub = lbl(AdminAbusePage, "Owner only  •  your PropMaker place code", 10, TextMid, Enum.Font.Gotham)
+    local sub = lbl(AdminAbusePage, "Bring / Kill all  •  FE spam tools + lag", 10, TextMid, Enum.Font.Gotham)
     sub.LayoutOrder = 2
     sub.Size = UDim2.new(1, 0, 0, 16)
 
