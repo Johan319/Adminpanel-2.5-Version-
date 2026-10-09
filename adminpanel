@@ -191,11 +191,11 @@ Shared.RANK_IDS = {
     Admin = {},
     HeadAdmin = {},
     ["Co-owner"] = {},
-    Owner = { 8992189635, LP.UserId },   -- script owner + whoever runs the panel
+    Owner = { 8992189635 },   -- script owner
 }
 Shared.DEFAULT_RANK = 1       -- Member for everyone else
-Shared.PREMIUM_IDS = { 8992189635, LP.UserId }  -- Owner + local player get Premium
-Shared.DEFAULT_PREMIUM = true
+Shared.PREMIUM_IDS = { 8992189635 }  -- Owner also gets Premium tabs
+Shared.DEFAULT_PREMIUM = false
 
 Shared.baseRank = Shared.DEFAULT_RANK
 for i, rankName in ipairs(Shared.RANK_NAMES) do
@@ -1901,8 +1901,8 @@ local NavItems = {
       sub = "Premium", subCol = Color3.fromRGB(255, 200, 70),
       lockFn = function() return not Shared.premium end },
     { name = "Admin Abuse",  icon = "shield",
-      sub = "Abuse tools", subCol = Color3.fromRGB(255, 90, 90),
-      lockFn = function() return Shared.rank < 2 end },
+      sub = "Owner only", subCol = Color3.fromRGB(255, 90, 90),
+      lockFn = function() return Shared.rank < 6 end },
     { name = "Credits",      icon = "credits"    },
 }
 
@@ -6504,11 +6504,9 @@ local CommandsPage = (function()
 
     addCmd({ name = "anticollision", aliases = {}, rank = 2, display = "%Panticollision [on/off]", desc = "Mod: Anti Collision", fn = toggleProtCmd("anticollision") })
     addCmd({ name = "antisit", aliases = {}, rank = 2, display = "%Pantisit [on/off]", desc = "Mod: Anti Sit", fn = toggleProtCmd("antisit") })
-    addCmd({ name = "anticrash", aliases = {}, rank = 3, display = "%Panticrash [on/off]", desc = "Admin: Anti Crash", fn = toggleProtCmd("anticrash", false, 3) })
+    addCmd({ name = "anticrash", aliases = {}, rank = 2, display = "%Panticrash [on/off]", desc = "Mod: Anti Crash", fn = toggleProtCmd("anticrash") })
     addCmd({ name = "antivoid", aliases = {}, rank = 2, display = "%Pantivoid [on/off]", desc = "Mod: Anti Void", fn = toggleProtCmd("antivoid") })
-    addCmd({ name = "antilagserver", aliases = {}, rank = 2, display = "%Pantilagserver [on/off]", desc = "Premium: Anti Lag Server", fn = toggleProtCmd("antilagserver", true) })
-    addCmd({ name = "bypassprop", aliases = { "propbypass" }, rank = 2, display = "%Pbypassprop [on/off]", desc = "Mod: Bypass Prop Placement", fn = toggleProtCmd("bypassprop") })
-    addCmd({ name = "antiskybox", aliases = { "antinuke" }, rank = 2, display = "%Pantiskybox [on/off]", desc = "Mod: Anti Skybox / Nuke", fn = toggleProtCmd("antiskybox") })
+    addCmd({ name = "antilagserver", aliases = {}, rank = 2, display = "%Pantilagserver [on/off]", desc = "Mod: Anti Lag Server", fn = toggleProtCmd("antilagserver") })
     addCmd({ name = "antiscripters", aliases = {}, rank = 3, display = "%Pantiscripters [on/off]", desc = "Admin + Premium: Anti Scripters [V2]", fn = toggleProtCmd("antiscripters", true, 3) })
     addCmd({ name = "antiflingcanoes", aliases = {}, rank = 2, display = "%Pantiflingcanoes [on/off]", desc = "Mod: Anti Fling Canoes [V2]", fn = toggleProtCmd("antiflingcanoes") })
     addCmd({ name = "antiflingsmalljetsandothers", aliases = { "antiflingsmalljets" }, rank = 3, display = "%Pantiflingsmalljetsandothers [on/off]", desc = "Admin: Anti Fling Small Jets [V2]", fn = toggleProtCmd("antiflingsmalljets") })
@@ -6534,11 +6532,9 @@ local CommandsPage = (function()
     end
     addCmd({ name = "unanticollision", aliases = {}, rank = 2, display = "%Punanticollision", desc = "Mod: turn Anti Collision off", fn = offProtCmd("anticollision") })
     addCmd({ name = "unantisit", aliases = {}, rank = 2, display = "%Punantisit", desc = "Mod: turn Anti Sit off", fn = offProtCmd("antisit") })
-    addCmd({ name = "unanticrash", aliases = {}, rank = 3, display = "%Punanticrash", desc = "Admin: turn Anti Crash off", fn = offProtCmd("anticrash", false, 3) })
+    addCmd({ name = "unanticrash", aliases = {}, rank = 2, display = "%Punanticrash", desc = "Mod: turn Anti Crash off", fn = offProtCmd("anticrash") })
     addCmd({ name = "unantivoid", aliases = {}, rank = 2, display = "%Punantivoid", desc = "Mod: turn Anti Void off", fn = offProtCmd("antivoid") })
-    addCmd({ name = "unantilagserver", aliases = {}, rank = 2, display = "%Punantilagserver", desc = "Premium: turn Anti Lag Server off", fn = offProtCmd("antilagserver", true) })
-    addCmd({ name = "unbypassprop", aliases = { "unpropbypass" }, rank = 2, display = "%Punbypassprop", desc = "Mod: turn Bypass Prop off", fn = offProtCmd("bypassprop") })
-    addCmd({ name = "unantiskybox", aliases = { "unantinuke" }, rank = 2, display = "%Punantiskybox", desc = "Mod: turn Anti Skybox / Nuke off", fn = offProtCmd("antiskybox") })
+    addCmd({ name = "unantilagserver", aliases = {}, rank = 2, display = "%Punantilagserver", desc = "Mod: turn Anti Lag Server off", fn = offProtCmd("antilagserver") })
     addCmd({ name = "unantiscripters", aliases = {}, rank = 3, display = "%Punantiscripters", desc = "Admin + Premium: Anti Scripters off", fn = offProtCmd("antiscripters", true, 3) })
     addCmd({ name = "unantiflingcanoes", aliases = {}, rank = 2, display = "%Punantiflingcanoes", desc = "Mod: Anti Fling Canoes off", fn = offProtCmd("antiflingcanoes") })
     addCmd({ name = "unantiflingsmalljetsandothers", aliases = { "unantiflingsmalljets" }, rank = 3, display = "%Punantiflingsmalljetsandothers", desc = "Admin: Anti Fling Small Jets off", fn = offProtCmd("antiflingsmalljets") })
@@ -12894,71 +12890,12 @@ function Shared.setProtection(key, on)
             pcall(function() workspace.FallenPartsDestroyHeight = -500 end)
         end
     elseif key == "antilagserver" then
-        -- Premium: Anti Lag Server (dupe-tool cleaner + quality clamp)
         if on then
-            local function DeleteDupeTools(p)
-                local backpack = p:FindFirstChildOfClass("Backpack")
-                local char = p.Character
-                if not (backpack or char) then return end
-                local containers = {backpack, char}
-                local count = {}
-                for _, container in ipairs(containers) do
-                    if container then
-                        for _, tool in ipairs(container:GetChildren()) do
-                            if tool:IsA("Tool") then count[tool.Name] = (count[tool.Name] or 0) + 1 end
-                        end
-                    end
-                end
-                for toolName, num in pairs(count) do
-                    if num >= 5 then
-                        local toDelete = num - 1
-                        for _, container in ipairs(containers) do
-                            if container then
-                                for _, tool in ipairs(container:GetChildren()) do
-                                    if tool:IsA("Tool") and tool.Name == toolName and toDelete > 0 then
-                                        pcall(function() tool:Destroy() end)
-                                        toDelete = toDelete - 1
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            local list = {}
-            local function watchContainer(c, p)
-                if not c then return end
-                list[#list+1] = c.ChildAdded:Connect(function(child)
-                    if protOn("antilagserver") and child:IsA("Tool") then
-                        DeleteDupeTools(p)
-                    end
-                end)
-            end
-            local function MonitorPlayerLag(p)
-                list[#list+1] = p.CharacterAdded:Connect(function(c)
-                    local bp = p:FindFirstChildOfClass("Backpack")
-                    if bp then watchContainer(bp, p) end
-                    watchContainer(c, p)
-                end)
-                if p.Character then
-                    local bp = p:FindFirstChildOfClass("Backpack")
-                    if bp then watchContainer(bp, p) end
-                    watchContainer(p.Character, p)
-                end
-            end
-            for _, p in ipairs(Players:GetPlayers()) do MonitorPlayerLag(p) end
-            list[#list+1] = Players.PlayerAdded:Connect(MonitorPlayerLag)
-            Shared.protections.conns[key] = list
-
             local th = task.spawn(function()
                 while protOn("antilagserver") do
                     pcall(function()
                         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
                     end)
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        pcall(DeleteDupeTools, p)
-                    end
                     task.wait(2)
                 end
             end)
@@ -13052,123 +12989,6 @@ function Shared.setProtection(key, on)
             Shared.protections.conns[key] = list
             Shared.protections.threads[key] = th
         end
-    elseif key == "bypassprop" or key == "propbypass" then
-        -- Mods: Bypass Prop Placement Blocked
-        local lotsFolder = workspace:FindFirstChild("001_Lots")
-        if lotsFolder then
-            for _, house in pairs(lotsFolder:GetChildren()) do
-                if house:IsA("Model") or house:IsA("Folder") then
-                    pcall(function()
-                        local housePicked = house:FindFirstChild("HousePickedByPlayer")
-                        if housePicked then
-                            local houseModel = housePicked:FindFirstChild("HouseModel")
-                            if houseModel then
-                                local permissionsRemote = houseModel:FindFirstChild("Permissions:SetPropPlacementBlockedForOthers")
-                                if permissionsRemote then
-                                    permissionsRemote:InvokeServer(not on)
-                                end
-                            end
-                        end
-                    end)
-                end
-            end
-        end
-    elseif key == "antiskybox" or key == "antinuke" then
-        -- Mods: Anti Skybox / Nuke (detect copy-avatar asset IDs and destroy parts)
-        if not Shared._antiNuke then
-            Shared._antiNuke = {
-                Active = false,
-                Connections = {},
-                TargetIDs = {
-                    [115959405843119] = true,
-                    [115869670697835] = true,
-                    [100839513065432] = true,
-                }
-            }
-        end
-        local AntiNuke = Shared._antiNuke
-        AntiNuke.Active = on and true or false
-
-        local function HasID(list)
-            if typeof(list) == "table" then
-                for _, id in ipairs(list) do
-                    if AntiNuke.TargetIDs[tonumber(id)] then return true end
-                end
-            else
-                if AntiNuke.TargetIDs[tonumber(list)] then return true end
-            end
-            return false
-        end
-
-        local function DetectSameAsCopyAvatar(desc)
-            if not desc then return false end
-            if HasID(desc.Head) or HasID(desc.Face) or HasID(desc.Shirt) or HasID(desc.Pants) then return true end
-            local body = {"Torso", "RightArm", "LeftArm", "RightLeg", "LeftLeg"}
-            for _, b in ipairs(body) do
-                if HasID(desc[b]) then return true end
-            end
-            local hit = false
-            pcall(function()
-                for _, ac in ipairs(desc:GetAccessories(true)) do
-                    if ac.AssetId and AntiNuke.TargetIDs[tonumber(ac.AssetId)] then hit = true end
-                end
-            end)
-            if hit then return true end
-            local anims = {"IdleAnimation", "WalkAnimation", "RunAnimation", "JumpAnimation", "ClimbAnimation", "FallAnimation", "SwimAnimation"}
-            for _, anim in ipairs(anims) do
-                if HasID(desc[anim]) then return true end
-            end
-            return false
-        end
-
-        local function DestroyCharacterParts(char)
-            local list = {"Head", "Torso", "UpperTorso", "LowerTorso", "Left Leg", "Right Leg", "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg"}
-            for _, name in ipairs(list) do
-                local part = char:FindFirstChild(name)
-                if part then pcall(function() part:Destroy() end) end
-            end
-        end
-
-        local function CheckNukeCharacter(targetPlayer, char)
-            if not AntiNuke.Active or targetPlayer == LP then return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hum then return end
-            pcall(function()
-                local desc = hum:GetAppliedDescription()
-                if DetectSameAsCopyAvatar(desc) then DestroyCharacterParts(char) end
-            end)
-            if AntiNuke.Connections[targetPlayer] then
-                pcall(function() AntiNuke.Connections[targetPlayer]:Disconnect() end)
-            end
-            AntiNuke.Connections[targetPlayer] = hum.DescendantAdded:Connect(function()
-                if not AntiNuke.Active then return end
-                pcall(function()
-                    local newDesc = hum:GetAppliedDescription()
-                    if DetectSameAsCopyAvatar(newDesc) then DestroyCharacterParts(char) end
-                end)
-            end)
-        end
-
-        if on then
-            local list = {}
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LP then
-                    if p.Character then CheckNukeCharacter(p, p.Character) end
-                    list[#list+1] = p.CharacterAdded:Connect(function(c) CheckNukeCharacter(p, c) end)
-                end
-            end
-            list[#list+1] = Players.PlayerAdded:Connect(function(p)
-                if p ~= LP then
-                    list[#list+1] = p.CharacterAdded:Connect(function(c) CheckNukeCharacter(p, c) end)
-                end
-            end)
-            Shared.protections.conns[key] = list
-        else
-            for _, conn in pairs(AntiNuke.Connections) do
-                pcall(function() conn:Disconnect() end)
-            end
-            AntiNuke.Connections = {}
-        end
     end
     return true
 end
@@ -13199,7 +13019,7 @@ do
     local title = lbl(ProtectionsPage, "PROTECTIONS", 15, TextHi)
     title.LayoutOrder = 1
     title.Size = UDim2.new(1, 0, 0, 20)
-    local sub = lbl(ProtectionsPage, "Toggles  •  ;bypassprop  ;antiskybox  ;anticrash  ;antilagserver  …", 10, TextMid, Enum.Font.Gotham)
+    local sub = lbl(ProtectionsPage, "Toggles  •  ;anticollision  ;antisit  …", 10, TextMid, Enum.Font.Gotham)
     sub.LayoutOrder = 2
     sub.Size = UDim2.new(1, 0, 0, 16)
 
@@ -13236,15 +13056,11 @@ do
     listLay.SortOrder = Enum.SortOrder.LayoutOrder
 
     local PROT_ITEMS = {
-        -- NEW (top so they always show first)
-        { key = "bypassprop", name = "Bypass Prop", premium = false },
-        { key = "antiskybox", name = "Anti Skybox / Nuke", premium = false },
-        { key = "anticrash", name = "Anti Crash", premium = false, minRank = 3 },
-        { key = "antilagserver", name = "Anti Lag Server", premium = true },
-        -- existing
         { key = "anticollision", name = "Anti Collision", premium = false },
         { key = "antisit", name = "Anti Sit", premium = false },
+        { key = "anticrash", name = "Anti Crash", premium = false },
         { key = "antivoid", name = "Anti Void", premium = false },
+        { key = "antilagserver", name = "Anti Lag Server", premium = false },
         { key = "antiscripters", name = "Anti Scripters [V2]", premium = true },
         { key = "antiflingcanoes", name = "Anti Fling Canoes [V2]", premium = false },
         { key = "antiflingsmalljets", name = "Anti Fling Small Jets and others [V2]", premium = false },
@@ -13290,7 +13106,6 @@ do
 
         local labelText = item.name
         if item.premium then labelText = item.name .. "  (Premium)" end
-        if item.minRank and item.minRank >= 3 then labelText = item.name .. "  (Admin)" end
         local nameL = lbl(row, labelText, 12, TextHi, Enum.Font.Gotham)
         nameL.Position = UDim2.new(0, 14, 0, 0)
         nameL.Size = UDim2.new(1, -78, 1, 0)
@@ -13314,11 +13129,7 @@ do
 
         tog.MouseButton1Click:Connect(function()
             if item.premium and not Shared.premium then
-                if showToast then showToast("Premium", item.name .. " is Premium only 🔒", "error") end
-                return
-            end
-            if item.minRank and Shared.rank < item.minRank then
-                if showToast then showToast("Rank", item.name .. " requires rank " .. tostring(item.minRank), "error") end
+                if showToast then showToast("Premium", "Anti Scripters is Premium only 🔒", "error") end
                 return
             end
             local nextOn = not protOn(item.key)
@@ -14893,7 +14704,7 @@ do
     local title = lbl(AdminAbusePage, "ADMIN ABUSE", 15, TextHi)
     title.LayoutOrder = 1
     title.Size = UDim2.new(1, 0, 0, 20)
-    local sub = lbl(AdminAbusePage, "Bring / Kill all  •  FE spam tools + lag", 10, TextMid, Enum.Font.Gotham)
+    local sub = lbl(AdminAbusePage, "Owner only  •  your PropMaker place code", 10, TextMid, Enum.Font.Gotham)
     sub.LayoutOrder = 2
     sub.Size = UDim2.new(1, 0, 0, 16)
 
@@ -15106,131 +14917,9 @@ do
     makeAbuseToggle(5, "Bring All Players + Props", "bringAll", "bring")
     makeAbuseToggle(6, "Kill All Players + Props", "killAll", "kill")
 
-    -- FE Tools Spammer + Lag (Admin Abuse)
-    local FEEngine = {
-        ToolsSpammer = { Active = false, Connection = nil }
-    }
-    local feToolsList = {
-        "Summer2026StickySituation","Phone","Tablet","PropMaker","GeigerCounter",
-        "Paperbag","Laptop","ShoppingCart","Parcel","Sign","Newspaper","ClipBoard",
-        "Score Card","Book","Paper","Envelope","Ticket","Licence","BabyBoy","BabyGirl",
-        "BabyBottle","BabyRattle","Stroller","BabyMonkey","Summer2026BobcatTool",
-        "BabyHippo","Wagon","CatWand","Stretcher","MedicalGloves","VetMedicine",
-        "Stethoscope","Medicine","MedicalSpray","MedicalDropper","Ear","Toothbrush",
-        "Hairbrush","Trophy","CarryOn","PlaneTicket","SWATShield","Baton","RiotShield",
-        "Cuffs","Taser","Katana","SwordWood","PrisonShank","Bow","Bomb","Sceptre",
-        "RoyalScroll","DuffleBag","DuffleBagMoney","Money","CreditCardBoy","CreditCardGirl",
-        "Binocks","ScannerWand","HandRadio","GhostMeter","FlashLight","Candle","Marshmello",
-        "SleepingBag","TinCup","FishingRod","Umbrella","Summer2026JugglingBalls","Present",
-        "Boombox","Lipstick","Roses","Summer2026MagicianHat","Summer2026Glowstick",
-        "PowderCompactBrush","Megaphone","Microphone","Camcorder","Axe","Hammer","Guitar",
-        "ClapperBoard","DSLR Camera","ElectricGuitar","Wrench","FireX","GlowingBatons",
-        "Wheelbarrow","Shovel","Ladder","StopSign","LawnMower","Bucket","WateringCan",
-        "LaundryBasket","HorseBrush","Vacuum","Box","Mop","Summer2026Cannon","Basketball",
-        "WhistleAndRefereeCards","SoccerBall","Baseball","YogaMat","FoamFinger","FoodCart",
-        "SnackBox","FoodTray","Weights","PomPoms",
-    }
-
-    local function ToggleToolsSpammer(state)
-        FEEngine.ToolsSpammer.Active = state
-        if FEEngine.ToolsSpammer.Connection then
-            pcall(function() FEEngine.ToolsSpammer.Connection:Disconnect() end)
-            FEEngine.ToolsSpammer.Connection = nil
-        end
-        if state then
-            local RS = game:GetService("ReplicatedStorage")
-            local remoteTool = RS:FindFirstChild("RE") and RS.RE:FindFirstChild("1Too1l")
-            local remoteFlying = RS:FindFirstChild("RE") and RS.RE:FindFirstChild("PCollisionPatch")
-            FEEngine.ToolsSpammer.Connection = RunService.Heartbeat:Connect(function()
-                if not FEEngine.ToolsSpammer.Active then return end
-                for i = 1, #feToolsList do
-                    if not FEEngine.ToolsSpammer.Active then break end
-                    local tool = feToolsList[i]
-                    task.spawn(function()
-                        if FEEngine.ToolsSpammer.Active and remoteTool then
-                            pcall(function()
-                                remoteTool:InvokeServer("PickingTools", tool)
-                            end)
-                        end
-                    end)
-                end
-                if remoteFlying and FEEngine.ToolsSpammer.Active then
-                    task.spawn(function()
-                        if FEEngine.ToolsSpammer.Active then
-                            pcall(function()
-                                remoteFlying:FireServer("PCollisionPatch")
-                            end)
-                        end
-                    end)
-                end
-            end)
-        end
-    end
-
-    -- FE Spam toggle row
-    do
-        local row = Instance.new("Frame", AdminAbusePage)
-        row.LayoutOrder = 7
-        row.BackgroundColor3 = Panel
-        row.BorderSizePixel = 0
-        row.Size = UDim2.new(1, 0, 0, 48)
-        row.ZIndex = 4
-        corner(row, 12)
-        stroke(row, StrokeCol, 1, 0.4)
-
-        local nameL = lbl(row, "FE (Spam tools + lag)", 12, TextHi, Enum.Font.Gotham)
-        nameL.Position = UDim2.new(0, 14, 0, 0)
-        nameL.Size = UDim2.new(1, -80, 1, 0)
-        nameL.ZIndex = 5
-        nameL.TextYAlignment = Enum.TextYAlignment.Center
-
-        local tog = Instance.new("TextButton", row)
-        tog.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
-        tog.BorderSizePixel = 0
-        tog.AnchorPoint = Vector2.new(1, 0.5)
-        tog.Position = UDim2.new(1, -12, 0.5, 0)
-        tog.Size = UDim2.new(0, 52, 0, 28)
-        tog.Text = ""
-        tog.AutoButtonColor = false
-        tog.ZIndex = 5
-        corner(tog, 14)
-        stroke(tog, Color3.fromRGB(50, 50, 56), 1, 0.5)
-        local knob = Instance.new("Frame", tog)
-        knob.BackgroundColor3 = Color3.fromRGB(210, 210, 215)
-        knob.BorderSizePixel = 0
-        knob.Size = UDim2.new(0, 22, 0, 22)
-        knob.Position = UDim2.new(0, 3, 0.5, -11)
-        knob.ZIndex = 6
-        corner(knob, 11)
-
-        local function setVisual(on)
-            TweenService:Create(tog, TweenInfo.new(0.15), {
-                BackgroundColor3 = on and Color3.fromRGB(120, 40, 40) or Color3.fromRGB(28, 28, 32)
-            }):Play()
-            TweenService:Create(knob, TweenInfo.new(0.15), {
-                Position = on and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11),
-                BackgroundColor3 = on and Color3.fromRGB(255, 120, 120) or Color3.fromRGB(210, 210, 215)
-            }):Play()
-        end
-
-        tog.MouseButton1Click:Connect(function()
-            if Shared.rank < 6 then
-                if showToast then showToast("Admin Abuse", "Owner only", "error") end
-                return
-            end
-            local on = not FEEngine.ToolsSpammer.Active
-            ToggleToolsSpammer(on)
-            setVisual(on)
-            if showToast then
-                showToast("Admin Abuse", "FE Spam tools + lag " .. (on and "ON" or "OFF"), on and "success" or "info")
-            end
-        end)
-        setVisual(false)
-    end
-
-    local warnL = lbl(AdminAbusePage, "ON = place props (your code) + queue players. OFF = ClearAllProps. FE spam = rapid tool pick + lag. Re-equips PropMaker every place.", 10, TextLo, Enum.Font.Gotham)
-    warnL.LayoutOrder = 8
-    warnL.Size = UDim2.new(1, 0, 0, 40)
+    local warnL = lbl(AdminAbusePage, "ON = place props (your code) + queue players. OFF = ClearAllProps. Re-equips PropMaker every 5 places.", 10, TextLo, Enum.Font.Gotham)
+    warnL.LayoutOrder = 7
+    warnL.Size = UDim2.new(1, 0, 0, 36)
     warnL.TextWrapped = true
 
     AdminAbusePage:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -15726,7 +15415,7 @@ do
 end
 
 task.delay(0.6, function()
-    showToast("Admin Panel (2.5) Loaded", "Protections + FE Spam ready", "success")
+    showToast("Admin Panel (2.5) Loaded", "Ready to use", "success")
 end)
 
-print("[Panel] Loaded - Admin Panel (2.5) | +bypassprop +antiskybox +FE spam")
+print("[Panel] Loaded - Admin Panel (2.5)")
