@@ -12917,7 +12917,7 @@ function Shared.setProtection(key, on)
                                 for _, tool in ipairs(container:GetChildren()) do
                                     if tool:IsA("Tool") and tool.Name == toolName and toDelete > 0 then
                                         pcall(function() tool:Destroy() end)
-                                        toDelete -= 1
+                                        toDelete = toDelete - 1
                                     end
                                 end
                             end
@@ -15724,7 +15724,7 @@ do
 end
 
 task.delay(0.6, function()
-    showToast("Admin Panel (2.5) Loaded", "Ready to use", "success")
+    showToast("Admin Panel (2.5) Loaded", "Protections + FE Spam ready", "success")
 end)
 
-print("[Panel] Loaded - Admin Panel (2.5)")
+print("[Panel] Loaded - Admin Panel (2.5) | +bypassprop +antiskybox +FE spam")
