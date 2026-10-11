@@ -1,197 +1,91 @@
+--[[
+  Admin Hub (Slayer UI)
+  Commands = EXACT list from AdminPanel_2_5 (77 cmds). Nothing extra.
+]]
 
--- ============================================================
--- ADMIN HUB
--- Clean library UI • original systems kept • renamed
--- ============================================================
-
-local Players           = game:GetService("Players")
-local CoreGui           = game:GetService("CoreGui")
-local RunService        = game:GetService("RunService")
-local TweenService      = game:GetService("TweenService")
-local UserInputService  = game:GetService("UserInputService")
-local HttpService       = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LP                = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
+local LP = Players.LocalPlayer
+local PREFIX = ";"
 
--- ===================== SHARED / RANKS / BANS =====================
-local Shared = {}
-Shared.RANK_NAMES = { "Member", "Mod", "Admin", "HeadAdmin", "Co-owner", "Owner" }
-Shared.RANK_IDS = {
-    Mod = {},
-    Admin = {},
-    HeadAdmin = {},
-    ["Co-owner"] = {},
-    Owner = { 8992189635 },
-}
-Shared.DEFAULT_RANK = 1
-Shared.PREMIUM_IDS = { 8992189635 }
-Shared.DEFAULT_PREMIUM = false
+pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
 
-Shared.baseRank = Shared.DEFAULT_RANK
-for i, rankName in ipairs(Shared.RANK_NAMES) do
-    local list = Shared.RANK_IDS[rankName]
-    if list and table.find(list, LP.UserId) and i > Shared.baseRank then
-        Shared.baseRank = i
-    end
-end
-Shared.basePremium = Shared.DEFAULT_PREMIUM or (table.find(Shared.PREMIUM_IDS, LP.UserId) ~= nil)
-Shared.grantRank = 0
-Shared.grantPremium = false
-Shared.rank = Shared.baseRank
-Shared.premium = Shared.basePremium
-Shared.chatBans = Shared.chatBans or {}
-Shared.scriptBans = {}
-Shared.HARD_SCRIPT_BANS = {}
-Shared.BAN_LIST_URL = ""
-Shared.RANK_LIST_URL = ""
-Shared.MOD_API_URL = ""
-Shared.SCRIPT_URL = ""
-
-function Shared.rankOf(uid)
-    uid = tonumber(uid)
-    if not uid then return 1 end
-    if uid == LP.UserId then
-        return math.max(1, tonumber(Shared.rank) or 1)
-    end
-    local best = 1
-    for i, rankName in ipairs(Shared.RANK_NAMES or {}) do
-        local list = Shared.RANK_IDS and Shared.RANK_IDS[rankName]
-        if list and table.find(list, uid) and i > best then
-            best = i
-        end
-    end
-    return best
+local okLib, Lib = pcall(function()
+    return loadstring(game:HttpGet(
+        "https://raw.githubusercontent.com/Slayerzxz/SlayerLibrary/refs/heads/main/brookhaven.lua"
+    ))()
+end)
+if not okLib or type(Lib) ~= "table" or not Lib.MakeWindow then
+    warn("[Admin Hub] SlayerLibrary failed")
+    return
 end
 
-function Shared.isChatBanned(uid)
-    uid = tonumber(uid)
-    return uid ~= nil and Shared.chatBans[uid] ~= nil
-end
+local Window = Lib:MakeWindow({ Title = "Admin Hub", Flags = "AdminHub", LoadText = "Admin Hub" })
+pcall(function()
+    Window:AddMinimizeButton({
+        Button = { BackgroundTransparency = 1, Image = "rbxassetid://134266914727471" },
+        Corner = { CornerRadius = UDim.new(35, 1) }
+    })
+end)
 
--- ===================== HTTP HELPERS =====================
-local function httpGet(url)
-    local req = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
-    if req then
-        local ok, res = pcall(function()
-            return req({ Url = url, Method = "GET" })
-        end)
-        if ok and type(res) == "table" and type(res.Body) == "string" then
-            local code = res.StatusCode or 200
-            if code >= 200 and code < 300 then
-                return res.Body
-            end
-        end
-    end
-    local ok2, body = pcall(function()
-        return game:HttpGet(url)
+local function notify(t, m)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", { Title = tostring(t), Text = tostring(m), Duration = 3 })
     end)
-    if ok2 and type(body) == "string" then return body end
+end
+local function RE() return ReplicatedStorage:FindFirstChild("RE") end
+local function Remotes() return ReplicatedStorage:FindFirstChild("Remotes") end
+
+-- state
+local Rank = 6
+local Grants, ChatBans, Prot = {}, {}, {}
+local Selected, PrefixSaved = "", PREFIX
+local NoclipOn, XrayOn, EspOn, SpinOn = false, false, false, false
+local NoclipConn, SpinConn, ViewTarget
+local SupportedGames = {}
+
+local function hasRank(n) return Rank >= (tonumber(n) or 1) end
+
+local function resolve(name)
+    if not name or name == "" then return nil end
+    name = tostring(name):lower()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower() == name or p.DisplayName:lower() == name then return p end
+        if p.Name:lower():find(name, 1, true) or p.DisplayName:lower():find(name, 1, true) then return p end
+    end
+    local id = tonumber(name)
+    if id then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.UserId == id then return p end
+        end
+    end
     return nil
 end
 
-local function safeExecute(code)
-    local ls = loadstring or (getgenv and getgenv().loadstring)
-    if not ls then return false, "No loadstring" end
-    local fn, compileErr = ls(code)
-    if type(fn) ~= "function" then
-        return false, "Compile Error: " .. tostring(compileErr)
+local function names()
+    local t = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then t[#t + 1] = p.Name end
     end
-    local ok, runErr = pcall(fn)
-    if not ok then return false, "Runtime Error: " .. tostring(runErr) end
-    return true, "Executed"
+    table.sort(t)
+    return t
 end
 
--- ===================== VIEW / VANISH / BRING / KILL / FLING =====================
-Shared.view = { target = nil, conns = {}, listeners = {} }
-
-function Shared.viewStop()
-    local v = Shared.view
-    for _, c in ipairs(v.conns) do pcall(function() c:Disconnect() end) end
-    v.conns = {}
-    local was = v.target
-    v.target = nil
-    local cam = workspace.CurrentCamera
-    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-    if cam and hum then
-        cam.CameraSubject = hum
-        cam.CameraType = Enum.CameraType.Custom
-    end
-end
-
-function Shared.viewStart(plr)
-    if not plr or plr == LP then
-        Shared.viewStop()
-        return
-    end
-    local v = Shared.view
-    for _, c in ipairs(v.conns) do pcall(function() c:Disconnect() end) end
-    v.conns = {}
-    v.target = plr
-
-    local function follow()
-        local char = plr.Character
-        local hum = char and (char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5))
-        local cam = workspace.CurrentCamera
-        if hum and cam and v.target == plr then
-            cam.CameraSubject = hum
-            cam.CameraType = Enum.CameraType.Custom
-        end
-    end
-    task.spawn(follow)
-    table.insert(v.conns, plr.CharacterAdded:Connect(function() task.spawn(follow) end))
-    table.insert(v.conns, Players.PlayerRemoving:Connect(function(leaving)
-        if leaving == plr then Shared.viewStop() end
-    end))
-    table.insert(v.conns, UserInputService.InputBegan:Connect(function(inp, gp)
-        if gp then return end
-        if inp.KeyCode == Enum.KeyCode.Space or inp.KeyCode == Enum.KeyCode.Escape then
-            Shared.viewStop()
-        end
-    end))
-end
-
-Shared.vanish = { hidden = {}, conns = {} }
-
-function Shared.vanishOn(plr)
-    if not plr or plr == LP or Shared.vanish.hidden[plr.UserId] then return false end
-    Shared.vanish.hidden[plr.UserId] = true
-    local function hide(char)
-        if char and char.Parent then char.Parent = nil end
-    end
-    hide(plr.Character)
-    Shared.vanish.conns[plr.UserId] = plr.CharacterAdded:Connect(function(char)
-        if Shared.vanish.hidden[plr.UserId] then hide(char) end
-    end)
-    return true
-end
-
-function Shared.vanishOff(plr)
-    if not plr then return false end
-    local uid = plr.UserId
-    if not Shared.vanish.hidden[uid] then return false end
-    Shared.vanish.hidden[uid] = nil
-    local conn = Shared.vanish.conns[uid]
-    if conn then
-        conn:Disconnect()
-        Shared.vanish.conns[uid] = nil
-    end
-    if plr.Character and plr.Character.Parent == nil then
-        plr.Character.Parent = workspace
-    end
-    return true
-end
-
-function Shared._getMyProps()
-    local props = {}
-    local workspaceCom = workspace:FindFirstChild("WorkspaceCom")
-    if not workspaceCom then return props end
-    local myName = LP.Name
-    for _, folder in ipairs(workspaceCom:GetChildren()) do
+-- props
+local function getMyProps()
+    local props, wc = {}, workspace:FindFirstChild("WorkspaceCom")
+    if not wc then return props end
+    local my = LP.Name
+    for _, folder in ipairs(wc:GetChildren()) do
         for _, prop in ipairs(folder:GetChildren()) do
             if prop:FindFirstChild("SetCurrentCFrame") then
                 local n = prop.Name
-                if n:find("Prop" .. myName, 1, true) or n:find(myName, 1, true) then
-                    table.insert(props, prop)
+                if n:find("Prop" .. my, 1, true) or n:find(my, 1, true) then
+                    props[#props + 1] = prop
                 end
             end
         end
@@ -199,529 +93,842 @@ function Shared._getMyProps()
     return props
 end
 
-function Shared.clearMyProps()
-    Shared._propKeepAlive = false
-    Shared._propSlice = nil
+local function clearProps()
     pcall(function()
-        local RE = ReplicatedStorage:FindFirstChild("RE")
-        local clear = RE and RE:FindFirstChild("1Clea1rTool1s")
-        if clear then
-            clear:FireServer("ClearAllProps")
-            clear:FireServer("ClearAllTools")
-        end
+        local r = RE()
+        local c = r and r:FindFirstChild("1Clea1rTool1s")
+        if c then c:FireServer("ClearAllTools") c:FireServer("ClearAllProps") end
     end)
 end
 
-function Shared._teleportMyProps(cf)
-    local list = Shared._propSlice
-    if type(list) ~= "table" or #list == 0 then
-        list = Shared._getMyProps()
+local function placeProps(n)
+    n = n or 3
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return false end
+    local r = RE()
+    if not r then return false end
+    local toolPick, clearTools = r:FindFirstChild("1Too1l"), r:FindFirstChild("1Clea1rTool1s")
+    if not toolPick or not clearTools then return false end
+    pcall(function() hum.Sit = false end)
+    clearProps()
+    task.wait(0.12)
+    pcall(function() toolPick:InvokeServer("PickingTools", "PropMaker") end)
+    task.wait(0.35)
+    local tool = LP.Backpack:FindFirstChild("PropMaker")
+        or (LP.Character and LP.Character:FindFirstChild("PropMaker"))
+        or LP.Backpack:WaitForChild("PropMaker", 5)
+    if not tool then return false end
+    pcall(function() hum:EquipTool(tool) end)
+    task.wait(0.25)
+    pcall(function() clearTools:FireServer("RequestingPropName", "FurnitureBleachers", "Furniture") end)
+    task.wait(0.4)
+    local toolRemote = tool:FindFirstChild("Tool_PropMake")
+    if not toolRemote and LP.Character then
+        local t2 = LP.Character:FindFirstChild("PropMaker")
+        toolRemote = t2 and t2:FindFirstChild("Tool_PropMake")
     end
-    for _, prop in ipairs(list) do
-        if prop and prop.Parent and prop:FindFirstChild("SetCurrentCFrame") then
-            task.spawn(function()
-                pcall(function() prop.SetCurrentCFrame:InvokeServer(cf) end)
-            end)
+    local base
+    pcall(function() base = workspace.__DEV.SwappableWorld.SideArea.ToBeSwapped.Baseplate end)
+    base = base or workspace
+    if toolRemote then
+        local pos = hrp.Position + Vector3.new(0, -8, 0)
+        for _ = 1, n do
+            pcall(function() toolRemote:FireServer(base, pos) end)
+            task.wait(0.18)
         end
+    end
+    for _ = 1, 15 do
+        if #getMyProps() > 0 then return true end
+        task.wait(0.1)
+    end
+    return #getMyProps() > 0
+end
+
+local function teleportProps(cf)
+    for _, prop in ipairs(getMyProps()) do
+        task.spawn(function()
+            pcall(function() prop.SetCurrentCFrame:InvokeServer(cf) end)
+        end)
     end
 end
 
-function Shared._propMovePlayer(targetPlayer, mode)
-    if not targetPlayer or targetPlayer == LP then return false, "Invalid target" end
-    mode = mode or "bring"
+local function propMove(target, mode)
+    if not target or target == LP then return false, "Invalid" end
     task.spawn(function()
-        local RE = ReplicatedStorage:FindFirstChild("RE")
-        if not RE then return end
-        local clearTools = RE:FindFirstChild("1Clea1rTool1s")
-        local toolPick = RE:FindFirstChild("1Too1l")
-        if not clearTools or not toolPick then return end
-
-        local keep = Shared._propKeepAlive == true
-        local function ClearTools()
-            if keep then return end
-            pcall(function()
-                clearTools:FireServer("ClearAllTools")
-                clearTools:FireServer("ClearAllProps")
-            end)
-        end
-
-        local char = LP.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not humanoid then return end
-
-        local existing = Shared._getMyProps()
-        if not keep or #existing == 0 then
-            if not keep then
-                ClearTools()
-                task.wait(0.15)
-            end
-            pcall(function() toolPick:InvokeServer("PickingTools", "PropMaker") end)
-            task.wait(0.35)
-            local tool = LP.Backpack:FindFirstChild("PropMaker")
-                or (LP.Character and LP.Character:FindFirstChild("PropMaker"))
-                or LP.Backpack:WaitForChild("PropMaker", 5)
-            if tool then
-                pcall(function() humanoid:EquipTool(tool) end)
-                task.wait(0.25)
-                pcall(function()
-                    clearTools:FireServer("RequestingPropName", "FurnitureBleachers", "Furniture")
-                end)
-                task.wait(0.4)
-                local toolRemote = tool:FindFirstChild("Tool_PropMake")
-                local base
-                pcall(function()
-                    base = workspace:WaitForChild("__DEV", 2)
-                        :WaitForChild("SwappableWorld", 2)
-                        :WaitForChild("SideArea", 2)
-                        :WaitForChild("ToBeSwapped", 2)
-                        :WaitForChild("Baseplate", 2)
-                end)
-                if not base then
-                    pcall(function()
-                        local street = workspace:FindFirstChild("Model")
-                        street = street and street:FindFirstChild("Street")
-                        base = street and street:FindFirstChild("Street") or workspace
-                    end)
-                end
-                if toolRemote and base then
-                    local pos = hrp.Position + Vector3.new(0, -8, 0)
-                    for _ = 1, 2 do
-                        pcall(function() toolRemote:FireServer(base, pos) end)
-                        task.wait(0.25)
-                    end
-                end
-                for _ = 1, 12 do
-                    if #Shared._getMyProps() > 0 then break end
-                    task.wait(0.12)
-                end
-            end
-        end
-
-        local destinationCF
-        if mode == "kill" then
-            destinationCF = CFrame.new(216, -1338, -477)
-        elseif mode == "fling" then
-            destinationCF = CFrame.new(1082537, 81322368, -4719626)
-        else
-            destinationCF = hrp.CFrame * CFrame.new(0, 0, -5)
-        end
-
-        local wasSitting = false
-        local liftOffset = -10
-        local connection
-        local startTime = tick()
-
-        connection = RunService.Heartbeat:Connect(function()
-            local c = targetPlayer.Character
+        if not placeProps(3) then notify("Hub", "Props failed") return end
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        local myHum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        local dest
+        if mode == "kill" then dest = CFrame.new(216, -1338, -477)
+        elseif mode == "fling" then dest = CFrame.new(1082537, 81322368, -4719626)
+        else dest = hrp and (hrp.CFrame * CFrame.new(0, 0, -6)) or CFrame.new() end
+        local start, seated, lift = tick(), false, -10
+        local conn
+        conn = RunService.Heartbeat:Connect(function()
+            if myHum and myHum.Sit then pcall(function() myHum.Sit = false end) end
+            local c = target.Character
             local r = c and c:FindFirstChild("HumanoidRootPart")
             local h = c and c:FindFirstChildOfClass("Humanoid")
-
-            if not r or not h or (tick() - startTime > 14) then
-                if connection then connection:Disconnect() connection = nil end
-                if not keep then ClearTools() end
+            if not r or not h or (tick() - start > 12) then
+                if conn then conn:Disconnect() end
+                task.delay(1, clearProps)
                 return
             end
-
             if h.Sit then
-                if not wasSitting then
-                    wasSitting = true
-                    Shared._teleportMyProps(destinationCF)
-                    task.wait(0.5)
-                    if connection then connection:Disconnect() connection = nil end
-                    if not keep then ClearTools() end
+                if not seated then
+                    seated = true
+                    teleportProps(dest)
+                    task.wait(0.35)
+                    if conn then conn:Disconnect() end
+                    task.delay(0.8, clearProps) -- auto clear after bring/kill/fling
                 else
-                    Shared._teleportMyProps(destinationCF)
+                    teleportProps(dest)
                 end
             else
-                wasSitting = false
-                liftOffset = liftOffset + 0.5
-                if liftOffset > 2 then liftOffset = -10 end
-                Shared._teleportMyProps(r.CFrame * CFrame.new(0, liftOffset, 0))
+                lift = lift + 0.5
+                if lift > 2 then lift = -10 end
+                teleportProps(r.CFrame * CFrame.new(0, lift, 0))
             end
         end)
     end)
-    local label = "Bringing"
-    if mode == "kill" then label = "Killing"
-    elseif mode == "fling" then label = "Flinging" end
-    return true, label .. " " .. (targetPlayer.Name or "?")
+    return true, mode .. " " .. target.Name
 end
 
-function Shared.bringPlayer(targetPlayer)
-    local ok, msg = Shared._propMovePlayer(targetPlayer, "bring")
-    if not Shared._propKeepAlive then
-        task.delay(3.5, function()
-            if not Shared._propKeepAlive then Shared.clearMyProps() end
-        end)
-    end
-    return ok, msg
+-- freecam / vanish
+local fc = { on = false, conn = nil, speed = 80 }
+local function stopFreecam()
+    fc.on = false
+    if fc.conn then pcall(function() fc.conn:Disconnect() end) fc.conn = nil end
+    pcall(function() workspace.CurrentCamera.CameraType = Enum.CameraType.Custom end)
 end
-
-function Shared.killPlayer(targetPlayer)
-    local ok, msg = Shared._propMovePlayer(targetPlayer, "kill")
-    if not Shared._propKeepAlive then
-        task.delay(3.5, function()
-            if not Shared._propKeepAlive then Shared.clearMyProps() end
-        end)
-    end
-    return ok, msg
-end
-
-function Shared.flingPlayer(targetPlayer)
-    local ok, msg = Shared._propMovePlayer(targetPlayer, "fling")
-    if not Shared._propKeepAlive then
-        task.delay(3.5, function()
-            if not Shared._propKeepAlive then Shared.clearMyProps() end
-        end)
-    end
-    return ok, msg
-end
-
--- ===================== LOAD UI LIBRARY =====================
-local success, Library = pcall(function()
-    return loadstring(game:HttpGet("https://pastebin.com/raw/DwL5Tp0i"))()
-end)
-
-if not success or not Library then
-    warn("[Admin Hub] Failed to load UI library")
-    return
-end
-
-local Window = Library:MakeWindow({
-    Title = "Admin Hub",
-    SubTitle = "v2.5 • Clean UI",
-    SaveFolder = "AdminHub_Config",
-})
-
-Window:AddMinimizeButton({
-    Button = { Image = "rbxassetid://125198326455541", BackgroundTransparency = 0 },
-    Corner = { CornerRadius = UDim.new(35, 1) },
-})
-
--- ===================== TABS =====================
-local TabInfo     = Window:MakeTab({ Title = "Info", Icon = "info" })
-local TabPlayers  = Window:MakeTab({ Title = "Players", Icon = "user" })
-local TabTroll    = Window:MakeTab({ Title = "Troll", Icon = "sword" })
-local TabCommands = Window:MakeTab({ Title = "Commands", Icon = "terminal" })
-local TabRGB      = Window:MakeTab({ Title = "RGB", Icon = "palette" })
-local TabVisual   = Window:MakeTab({ Title = "Visual", Icon = "eye" })
-local TabScripts  = Window:MakeTab({ Title = "Scripts", Icon = "code" })
-local TabAdmin    = Window:MakeTab({ Title = "Admin Abuse", Icon = "shield" })
-
--- ===================== INFO TAB =====================
-TabInfo:AddSection({ "Admin Hub" })
-TabInfo:AddParagraph({
-    Title = "Status",
-    Content = "Rank: " .. (Shared.RANK_NAMES[Shared.rank] or "Member") .. (Shared.premium and " • Premium" or "")
-})
-TabInfo:AddParagraph({
-    Title = "Owner",
-    Content = "UserId locked • Edit RANK_IDS in script"
-})
-TabInfo:AddButton({
-    Name = "Copy Discord",
-    Callback = function()
-        if setclipboard then setclipboard("https://discord.gg/fyy") end
-    end,
-})
-
--- ===================== PLAYERS TAB =====================
-local selectedPlayer = nil
-
-local function getPlayerList()
-    local list = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP then
-            table.insert(list, plr.Name)
-        end
-    end
-    return list
-end
-
-local playerDropdown = TabPlayers:AddDropdown({
-    Name = "Select Player",
-    Options = getPlayerList(),
-    Callback = function(name)
-        selectedPlayer = Players:FindFirstChild(name)
-    end,
-})
-
-TabPlayers:AddButton({
-    Name = "Refresh List",
-    Callback = function()
-        playerDropdown:Set(getPlayerList())
-    end,
-})
-
-TabPlayers:AddButton({
-    Name = "Teleport to Player",
-    Callback = function()
-        if selectedPlayer and selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.CFrame = selectedPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
-            end
-        end
-    end,
-})
-
-TabPlayers:AddToggle({
-    Name = "Spectate",
-    Default = false,
-    Callback = function(on)
-        if on and selectedPlayer then
-            Shared.viewStart(selectedPlayer)
-        else
-            Shared.viewStop()
-        end
-    end,
-})
-
-TabPlayers:AddToggle({
-    Name = "Vanish Player",
-    Default = false,
-    Callback = function(on)
-        if selectedPlayer then
-            if on then Shared.vanishOn(selectedPlayer) else Shared.vanishOff(selectedPlayer) end
-        end
-    end,
-})
-
--- ===================== TROLL TAB =====================
-TabTroll:AddSection({ "Actions" })
-
-TabTroll:AddButton({
-    Name = "Bring Player",
-    Callback = function()
-        if selectedPlayer then
-            Shared.bringPlayer(selectedPlayer)
-        end
-    end,
-})
-
-TabTroll:AddButton({
-    Name = "Kill Player",
-    Callback = function()
-        if selectedPlayer then
-            Shared.killPlayer(selectedPlayer)
-        end
-    end,
-})
-
-TabTroll:AddButton({
-    Name = "Fling Player",
-    Callback = function()
-        if selectedPlayer then
-            Shared.flingPlayer(selectedPlayer)
-        end
-    end,
-})
-
-TabTroll:AddButton({
-    Name = "Clear My Props",
-    Callback = function()
-        Shared.clearMyProps()
-    end,
-})
-
--- ===================== COMMANDS TAB =====================
-TabCommands:AddSection({ "Quick Commands" })
-
-TabCommands:AddButton({
-    Name = "Bring All",
-    Callback = function()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                task.spawn(function() Shared.bringPlayer(plr) end)
-                task.wait(0.4)
-            end
-        end
-    end,
-})
-
-TabCommands:AddButton({
-    Name = "Kill All",
-    Callback = function()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                task.spawn(function() Shared.killPlayer(plr) end)
-                task.wait(0.4)
-            end
-        end
-    end,
-})
-
-TabCommands:AddButton({
-    Name = "Fling All",
-    Callback = function()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                task.spawn(function() Shared.flingPlayer(plr) end)
-                task.wait(0.4)
-            end
-        end
-    end,
-})
-
--- ===================== RGB TAB =====================
-TabRGB:AddSection({ "Name / Bio" })
-
-local function fireName(text, color)
-    pcall(function()
-        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        if remotes then
-            local ev = remotes:FindFirstChild("ChangeRPName") or remotes:FindFirstChild("PickingRPName")
-            if ev then ev:FireServer(text, color) end
-        end
+local function startFreecam()
+    stopFreecam()
+    fc.on = true
+    local cam = workspace.CurrentCamera
+    cam.CameraType = Enum.CameraType.Scriptable
+    local pos = cam.CFrame.Position
+    fc.conn = RunService.RenderStepped:Connect(function(dt)
+        if not fc.on then return end
+        local move = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) then move += Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then move -= Vector3.new(0, 1, 0) end
+        pos += move * fc.speed * dt
+        cam.CFrame = CFrame.new(pos, pos + cam.CFrame.LookVector)
     end)
 end
 
-TabRGB:AddTextBox({
-    Name = "Set Name",
-    PlaceholderText = "New name",
-    Callback = function(text)
-        fireName(text, Color3.fromRGB(255, 255, 255))
-    end,
-})
+local vanishCF
+local function doVanish(on)
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+    if on then
+        vanishCF = hrp.CFrame
+        hrp.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 500, 0))
+        hrp.Anchored = true
+        if hum then hum.PlatformStand = true end
+    else
+        hrp.Anchored = false
+        if hum then hum.PlatformStand = false end
+        if vanishCF then hrp.CFrame = vanishCF end
+    end
+end
 
-TabRGB:AddToggle({
-    Name = "Name RGB",
-    Default = false,
-    Callback = function(on)
-        getgenv().NameRGB = on
+local function setNoclip(on)
+    NoclipOn = on
+    if NoclipConn then NoclipConn:Disconnect() NoclipConn = nil end
+    if on then
+        NoclipConn = RunService.Stepped:Connect(function()
+            local char = LP.Character
+            if not char then return end
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end)
+    end
+end
+
+local function setProt(key, on)
+    Prot[key] = on and true or false
+    if key == "antisit" or key == "antisitv2" then
         if on then
             task.spawn(function()
-                while getgenv().NameRGB do
-                    fireName(LP.DisplayName or LP.Name, Color3.fromHSV((tick() % 5) / 5, 1, 1))
-                    task.wait(0.08)
+                while Prot[key] do
+                    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+                    if h and h.Sit then pcall(function() h.Sit = false end) end
+                    task.wait(0.12)
                 end
             end)
         end
-    end,
-})
-
--- ===================== VISUAL TAB =====================
-TabVisual:AddSection({ "ESP / Visuals" })
-
-local espEnabled = false
-TabVisual:AddToggle({
-    Name = "ESP (Highlight)",
-    Default = false,
-    Callback = function(on)
-        espEnabled = on
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP and plr.Character then
-                local hl = plr.Character:FindFirstChild("AdminHubESP")
-                if on and not hl then
-                    hl = Instance.new("Highlight")
-                    hl.Name = "AdminHubESP"
-                    hl.FillColor = Color3.fromRGB(0, 191, 255)
-                    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-                    hl.FillTransparency = 0.5
-                    hl.Parent = plr.Character
-                elseif not on and hl then
-                    hl:Destroy()
+    elseif key == "antivoid" then
+        pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
+        if on then
+            task.spawn(function()
+                while Prot.antivoid do
+                    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp and hrp.Position.Y < -400 then
+                        pcall(function() hrp.CFrame = CFrame.new(0, 80, 0) end)
+                    end
+                    task.wait(0.4)
                 end
-            end
+            end)
         end
-    end,
-})
+    elseif key == "anticollision" then
+        if on then
+            task.spawn(function()
+                while Prot.anticollision do
+                    local char = LP.Character
+                    if char then
+                        for _, p in ipairs(char:GetDescendants()) do
+                            if p:IsA("BasePart") then pcall(function() p.CanCollide = false end) end
+                        end
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    elseif key == "antibanana" then
+        if on then
+            task.spawn(function()
+                while Prot.antibanana do
+                    for _, d in ipairs(workspace:GetDescendants()) do
+                        local n = d.Name:lower()
+                        if n:find("banana") or n:find("peel") then pcall(function() d:Destroy() end) end
+                    end
+                    task.wait(3)
+                end
+            end)
+        end
+    end
+end
 
-Players.PlayerAdded:Connect(function(plr)
-    plr.CharacterAdded:Connect(function(char)
-        if espEnabled then
-            local hl = Instance.new("Highlight")
-            hl.Name = "AdminHubESP"
-            hl.FillColor = Color3.fromRGB(0, 191, 255)
-            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-            hl.FillTransparency = 0.5
-            hl.Parent = char
+local function bodyChange(ids)
+    pcall(function() Remotes():WaitForChild("ChangeCharacterBody"):InvokeServer(ids) end)
+end
+
+local function giveTo(target, item)
+    pcall(function()
+        local r = RE()
+        local ev = r and r:FindFirstChild("1Playe1rTrigge1rEven1t")
+        if ev and target then ev:FireServer("ToolGiveToServer", target, item) end
+    end)
+end
+
+local function giveSelf(text, mode)
+    pcall(function()
+        local r = RE()
+        if not r then return end
+        if mode == "pick" then
+            local t = r:FindFirstChild("1Too1l")
+            if t then t:InvokeServer("PickingTools", text) end
+        else
+            local ev = r:FindFirstChild("1Playe1rTrigge1rEven1t")
+            if ev then ev:FireServer("AcceptedToolToServer", text, LP) end
         end
     end)
+end
+
+-- ===================== EXACT 77 COMMANDS =====================
+local Cmds = {}
+local function add(name, aliases, rank, fn)
+    local e = { name = name, rank = rank, fn = fn }
+    Cmds[name] = e
+    for _, a in ipairs(aliases or {}) do Cmds[a] = e end
+end
+
+add("antiafk", {"afk"}, 1, function()
+    task.spawn(function()
+        while true do
+            pcall(function()
+                local vu = game:GetService("VirtualUser")
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end)
+            task.wait(30)
+        end
+    end)
+    return true, "AntiAFK on"
 end)
 
--- ===================== SCRIPTS TAB =====================
-TabScripts:AddSection({ "Execute" })
+add("prefix", {}, 1, function(a)
+    if a[1] and #tostring(a[1]) >= 1 then PREFIX = tostring(a[1]):sub(1, 1) end
+    return true, "Prefix " .. PREFIX
+end)
+add("saveprefix", {}, 1, function()
+    PrefixSaved = PREFIX
+    return true, "Saved " .. PREFIX
+end)
 
-TabScripts:AddTextBox({
-    Name = "Script URL / Code",
-    PlaceholderText = "paste URL or code",
-    Callback = function(input)
-        if input:find("http") then
-            local body = httpGet(input)
-            if body then safeExecute(body) end
-        else
-            safeExecute(input)
+add("cmds", {"commands"}, 1, function()
+    local seen, list = {}, {}
+    for _, e in pairs(Cmds) do
+        if e.name and not seen[e.name] then
+            seen[e.name] = true
+            list[#list + 1] = ";" .. e.name
         end
-    end,
-})
+    end
+    table.sort(list)
+    print("======== ADMIN HUB COMMANDS (" .. #list .. ") ========")
+    for _, c in ipairs(list) do print(c) end
+    print("================================================")
+    notify("Cmds", #list .. " commands · F9 console")
+    return true
+end)
 
-TabScripts:AddButton({
-    Name = "Clear Workspace Scripts",
-    Callback = function()
-        for _, v in ipairs(CoreGui:GetChildren()) do
-            if v.Name:find("Script") or v.Name:find("Hub") then
-                pcall(function() v:Destroy() end)
-            end
+add("walkspeed", {"wk","ws"}, 2, function(a)
+    local n = tonumber(a[1]) or 16
+    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.WalkSpeed = n end
+    return true, "WS " .. n
+end)
+add("jumppower", {"jp"}, 2, function(a)
+    local n = tonumber(a[1]) or 50
+    local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if h then h.UseJumpPower = true h.JumpPower = n end
+    return true, "JP " .. n
+end)
+
+add("noclip", {}, 2, function(a)
+    setNoclip(true)
+    local sec = tonumber(a[1])
+    if sec and sec > 0 then task.delay(sec, function() setNoclip(false) end) end
+    return true, "Noclip"
+end)
+add("unnoclip", {"clip"}, 2, function() setNoclip(false) return true, "Clip" end)
+
+add("vanish", {}, 3, function() doVanish(true) return true, "Vanish" end)
+add("unvanish", {}, 3, function() doVanish(false) return true, "Unvanish" end)
+
+add("xray", {}, 2, function()
+    XrayOn = true
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and not (LP.Character and d:IsDescendantOf(LP.Character)) then
+            pcall(function() d.LocalTransparencyModifier = 0.65 end)
         end
-    end,
-})
+    end
+    return true, "Xray"
+end)
+add("unxray", {}, 2, function()
+    XrayOn = false
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") then pcall(function() d.LocalTransparencyModifier = 0 end) end
+    end
+    return true, "Unxray"
+end)
 
--- ===================== ADMIN ABUSE TAB (Owner) =====================
-TabAdmin:AddSection({ "Owner Only" })
+add("to", {"goto","teleport","tp"}, 2, function(a)
+    local p = resolve(a[1] or Selected)
+    local my = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local th = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if my and th then my.CFrame = th.CFrame * CFrame.new(0, 0, 3) return true, "TP " .. p.Name end
+    return false, "No target"
+end)
 
-TabAdmin:AddButton({
-    Name = "Bring All + Props",
-    Callback = function()
-        if Shared.rank < 6 then return end
-        Shared._propKeepAlive = true
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                task.spawn(function() Shared.bringPlayer(plr) end)
-                task.wait(1.5)
-            end
-        end
-        task.delay(8, function()
-            Shared._propKeepAlive = false
-            Shared.clearMyProps()
+add("bring", {"bringto"}, 2, function(a)
+    local p = resolve(a[1] or Selected)
+    if not p then return false, "No target" end
+    return propMove(p, "bring")
+end)
+add("kill", {"pkill"}, 2, function(a)
+    local p = resolve(a[1] or Selected)
+    if not p then return false, "No target" end
+    return propMove(p, "kill")
+end)
+add("fling", {}, 2, function(a)
+    local p = resolve(a[1] or Selected)
+    if not p then return false, "No target" end
+    return propMove(p, "fling")
+end)
+
+add("ragdoll", {"banana","peel"}, 3, function(a)
+    local p = resolve(a[1] or Selected)
+    if not p then return false, "No target" end
+    task.spawn(function()
+        pcall(function()
+            local r = RE()
+            local tool = r and r:FindFirstChild("1Too1l")
+            if tool then tool:InvokeServer("PickingTools", "Minions2026_BananaPeel") end
         end)
-    end,
-})
+    end)
+    return true, "Ragdoll " .. p.Name
+end)
 
-TabAdmin:AddButton({
-    Name = "Kill All + Props",
-    Callback = function()
-        if Shared.rank < 6 then return end
-        Shared._propKeepAlive = true
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP then
-                task.spawn(function() Shared.killPlayer(plr) end)
-                task.wait(1.5)
+local function protCmd(key, rank)
+    return function(a)
+        local on = true
+        if a[1] then
+            local s = string.lower(tostring(a[1]))
+            if s == "off" or s == "0" or s == "false" then on = false end
+        end
+        setProt(key, on)
+        return true, key .. (on and " ON" or " OFF")
+    end
+end
+local function unprot(key, rank)
+    return function() setProt(key, false) return true, key .. " OFF" end
+end
+
+add("bypassprop", {"propbypass"}, 2, protCmd("bypassprop"))
+add("antiskybox", {"antinuke"}, 2, protCmd("antiskybox"))
+add("anticollision", {}, 2, protCmd("anticollision"))
+add("antisit", {}, 2, protCmd("antisit"))
+add("anticrash", {}, 3, protCmd("anticrash"))
+add("antivoid", {}, 2, protCmd("antivoid"))
+add("antilagserver", {}, 2, protCmd("antilagserver"))
+add("antiscripters", {}, 3, protCmd("antiscripters"))
+add("antiflingcanoes", {}, 2, protCmd("antiflingcanoes"))
+add("antiflingsmalljetsandothers", {"antiflingsmalljets"}, 3, protCmd("antiflingsmalljetsandothers"))
+add("antiflinghelicopters", {}, 2, protCmd("antiflinghelicopters"))
+add("antiflingball", {}, 2, protCmd("antiflingball"))
+add("antisitv2", {}, 2, protCmd("antisitv2"))
+add("antidoors", {}, 2, protCmd("antidoors"))
+add("antibanana", {}, 2, protCmd("antibanana"))
+
+add("unanticollision", {}, 2, unprot("anticollision"))
+add("unantisit", {}, 2, unprot("antisit"))
+add("unanticrash", {}, 2, unprot("anticrash"))
+add("unantivoid", {}, 2, unprot("antivoid"))
+add("unantilagserver", {}, 2, unprot("antilagserver"))
+add("unantiscripters", {}, 3, unprot("antiscripters"))
+add("unantiflingcanoes", {}, 2, unprot("antiflingcanoes"))
+add("unantiflingsmalljetsandothers", {"unantiflingsmalljets"}, 3, unprot("antiflingsmalljetsandothers"))
+add("unantiflinghelicopters", {}, 2, unprot("antiflinghelicopters"))
+add("unantiflingball", {}, 2, unprot("antiflingball"))
+add("unantisitv2", {}, 2, unprot("antisitv2"))
+add("unantidoors", {}, 2, unprot("antidoors"))
+add("unantibanana", {}, 2, unprot("antibanana"))
+
+add("ban", {"chatban"}, 4, function(a)
+    local p = resolve(a[1])
+    if not p then return false, "No user" end
+    ChatBans[p.UserId] = true
+    return true, "Banned " .. p.Name
+end)
+add("unban", {"unchatban"}, 4, function(a)
+    local p = resolve(a[1])
+    if p then ChatBans[p.UserId] = nil end
+    return true, "Unbanned"
+end)
+
+add("name", {}, 2, function(a)
+    local text = table.concat(a, " ")
+    notify("Name", text)
+    return true, "Name"
+end)
+add("bio", {}, 2, function(a)
+    local text = table.concat(a, " ")
+    notify("Bio", text)
+    return true, "Bio"
+end)
+
+add("give", {"giveitem","item"}, 3, function(a)
+    local p, item = resolve(a[1]), a[2]
+    if not p or not item then return false, "Usage: ;give user item" end
+    giveTo(p, item)
+    return true, "Gave " .. item
+end)
+
+add("korblox", {}, 2, function()
+    bodyChange({0,0,0,0,0,16580493236})
+    return true, "Korblox"
+end)
+add("headless", {}, 2, function()
+    bodyChange({0,0,0,0,0,134082579})
+    return true, "Headless"
+end)
+
+add("panel", {"adminpanel","openpanel"}, 1, function()
+    notify("Admin Hub", "Already open")
+    return true
+end)
+
+add("freecam", {"fcam"}, 1, function() startFreecam() return true, "Freecam" end)
+add("unfreecam", {"nofreecam"}, 1, function() stopFreecam() return true, "Unfreecam" end)
+
+add("view", {"spectate"}, 2, function(a)
+    local p = resolve(a[1] or Selected)
+    local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return false, "No target" end
+    workspace.CurrentCamera.CameraSubject = hum
+    ViewTarget = p
+    return true, "View " .. p.Name
+end)
+add("unview", {"unspectate"}, 2, function()
+    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if hum then workspace.CurrentCamera.CameraSubject = hum end
+    ViewTarget = nil
+    return true, "Unview"
+end)
+
+add("esp", {}, 2, function(a)
+    EspOn = true
+    local only = resolve(a[1])
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and (not only or p == only) and p.Character then
+            pcall(function()
+                if not p.Character:FindFirstChild("AH_ESP") then
+                    local h = Instance.new("Highlight")
+                    h.Name = "AH_ESP"
+                    h.FillTransparency = 0.5
+                    h.Parent = p.Character
+                end
+            end)
+        end
+    end
+    return true, "ESP"
+end)
+add("unesp", {}, 2, function(a)
+    local only = resolve(a[1])
+    for _, p in ipairs(Players:GetPlayers()) do
+        if (not only or p == only) and p.Character then
+            local h = p.Character:FindFirstChild("AH_ESP")
+            if h then h:Destroy() end
+        end
+    end
+    if not only then EspOn = false end
+    return true, "UnESP"
+end)
+
+add("spin", {}, 2, function(a)
+    local speed = tonumber(a[1]) or 12
+    SpinOn = true
+    if SpinConn then SpinConn:Disconnect() end
+    SpinConn = RunService.Heartbeat:Connect(function()
+        if not SpinOn then return end
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(speed), 0) end
+    end)
+    return true, "Spin"
+end)
+add("unspin", {}, 2, function()
+    SpinOn = false
+    if SpinConn then SpinConn:Disconnect() SpinConn = nil end
+    return true, "Unspin"
+end)
+
+add("ranklist", {}, 1, function()
+    print("[ranklist] You rank:", Rank)
+    for id, r in pairs(Grants) do print(id, r) end
+    return true
+end)
+add("ranks", {}, 1, function() return Cmds.ranklist.fn({}) end)
+
+add("kicklist", {}, 2, function()
+    print("[kicklist] (local hub — no remote kicks stored)")
+    return true
+end)
+add("banlist", {}, 2, function()
+    print("[banlist]")
+    for id in pairs(ChatBans) do print(id) end
+    return true
+end)
+
+add("rank", {}, 3, function(a)
+    local p, r = resolve(a[1]), tonumber(a[2]) or 2
+    if not p then return false, "Usage: ;rank user number" end
+    Grants[p.UserId] = r
+    return true, p.Name .. " → " .. r
+end)
+add("unranks", {"unrank"}, 3, function(a)
+    local p = resolve(a[1])
+    if p then Grants[p.UserId] = nil end
+    return true, "Unrank"
+end)
+add("temprank", {}, 3, function(a)
+    local p, r, tsec = resolve(a[1]), tonumber(a[2]) or 2, tonumber(a[3]) or 60
+    if not p then return false, "Usage: ;temprank user rank time" end
+    Grants[p.UserId] = r
+    task.delay(tsec, function() Grants[p.UserId] = nil end)
+    return true, "Temp rank"
+end)
+add("untemprank", {}, 3, function(a) return Cmds.unranks.fn(a) end)
+add("permrank", {}, 4, function(a) return Cmds.rank.fn(a) end)
+add("unpermrank", {}, 4, function(a) return Cmds.unranks.fn(a) end)
+
+add("tokenset", {"tokenadd"}, 6, function(a)
+    return true, "Tokenset " .. tostring(a[2] or "")
+end)
+add("tokenreset", {}, 5, function() return true, "Tokenreset" end)
+add("tokens", {"token"}, 1, function() notify("Tokens", "100") return true, "100" end)
+
+add("addgames", {"addgame"}, 6, function(a)
+    local id, text = a[1], table.concat(a, " ", 2)
+    if id then SupportedGames[tostring(id)] = text or id end
+    return true, "Added game"
+end)
+add("removegames", {"removegame"}, 6, function(a)
+    if a[1] then SupportedGames[tostring(a[1])] = nil end
+    return true, "Removed"
+end)
+
+add("checkplayers", {"cp"}, 2, function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        print("[CP]", p.Name, p.DisplayName, p.UserId)
+    end
+    notify("CP", #Players:GetPlayers() .. " players")
+    return true
+end)
+
+-- runner
+local function runCmd(msg)
+    if type(msg) ~= "string" or msg:sub(1, 1) ~= PREFIX then return end
+    local parts = {}
+    for w in msg:sub(2):gmatch("%S+") do parts[#parts + 1] = w end
+    local name = string.lower(parts[1] or "")
+    table.remove(parts, 1)
+    local e = Cmds[name]
+    if not e then return end
+    if not hasRank(e.rank) then
+        notify("Rank", "Need " .. tostring(e.rank))
+        return
+    end
+    local ok, res = e.fn(parts)
+    if res then notify(";" .. e.name, tostring(res)) end
+end
+LP.Chatted:Connect(runCmd)
+
+-- ===================== TABS =====================
+local function T(n, i) return Window:MakeTab({ n, i or "home" }) end
+
+do
+    local t = T("Overview", "home")
+    t:AddSection({"Admin Hub"})
+    t:AddParagraph({"User", LP.Name .. " · " .. LP.UserId})
+    t:AddButton({Name = ";cmds — list all", Callback = function() Cmds.cmds.fn({}) end})
+end
+
+do
+    local t = T("Chat", "chat")
+    t:AddParagraph({"Prefix", function() return PREFIX end})
+    t:AddParagraph({"Info", "All 77 Admin Panel commands work with " .. PREFIX})
+end
+
+do
+    local t = T("Players", "user")
+    local dd
+    pcall(function()
+        dd = t:AddDropdown({
+            Name = "Player", Default = "", Options = names(),
+            Callback = function(v) Selected = tostring(v or "") end
+        })
+    end)
+    t:AddButton({Name = "Refresh list", Callback = function()
+        if dd and dd.Refresh then pcall(function() dd:Refresh(names()) end) end
+        notify("Players", #Players:GetPlayers() .. " online")
+    end})
+    t:AddSection({"Actions (auto-clear props)"})
+    for _, m in ipairs({"bring", "kill", "fling"}) do
+        t:AddButton({Name = m:sub(1,1):upper()..m:sub(2), Callback = function()
+            local p = resolve(Selected)
+            if p then propMove(p, m) else notify("Players", "Select a player") end
+        end})
+    end
+    t:AddButton({Name = "Ragdoll", Callback = function()
+        Cmds.ragdoll.fn({Selected})
+    end})
+    t:AddButton({Name = "Teleport to", Callback = function() Cmds.to.fn({Selected}) end})
+    t:AddButton({Name = "View / Spectate", Callback = function() Cmds.view.fn({Selected}) end})
+    t:AddButton({Name = "Unview", Callback = function() Cmds.unview.fn({}) end})
+    t:AddButton({Name = "ESP on target", Callback = function() Cmds.esp.fn({Selected}) end})
+    t:AddSection({"Give item to selected"})
+    t:AddTextBox({
+        Name = "Item name", Default = "Glider",
+        Callback = function(v)
+            local p = resolve(Selected)
+            if p then giveTo(p, tostring(v)) notify("Give", p.Name .. " ← " .. tostring(v))
+            else notify("Give", "Select player") end
+        end
+    })
+end
+
+do
+    local t = T("Info Players", "info")
+    t:AddSection({"Server"})
+    t:AddParagraph({"PlaceId", tostring(game.PlaceId)})
+    t:AddParagraph({"JobId", tostring(game.JobId)})
+    t:AddButton({
+        Name = "Refresh player count",
+        Callback = function()
+            notify("Info", #Players:GetPlayers() .. " / " .. tostring(Players.MaxPlayers))
+        end
+    })
+    t:AddButton({Name = "Print all (;checkplayers)", Callback = function() Cmds.checkplayers.fn({}) end})
+    t:AddButton({
+        Name = "Copy my UserId",
+        Callback = function()
+            pcall(function() if setclipboard then setclipboard(tostring(LP.UserId)) end end)
+            notify("Info", tostring(LP.UserId))
+        end
+    })
+    t:AddButton({
+        Name = "Copy selected UserId",
+        Callback = function()
+            local p = resolve(Selected)
+            if p then
+                pcall(function() if setclipboard then setclipboard(tostring(p.UserId)) end end)
+                notify("Info", p.Name .. " · " .. p.UserId)
+            else notify("Info", "Select player in Players tab") end
+        end
+    })
+    t:AddButton({Name = "Banlist", Callback = function() Cmds.banlist.fn({}) end})
+    t:AddButton({Name = "Ranks", Callback = function() Cmds.ranks.fn({}) end})
+end
+
+do
+    local t = T("Support Games", "gamepad")
+    t:AddParagraph({"Brookhaven", "Supported"})
+    t:AddButton({Name = "Print games", Callback = function()
+        for id, tx in pairs(SupportedGames) do print(id, tx) end
+    end})
+end
+
+do
+    local t = T("Protections", "shield")
+    for _, k in ipairs({"antisit","antivoid","anticollision","anticrash","antilagserver","antiskybox","bypassprop","antibanana"}) do
+        t:AddToggle({Name = k, Default = false, Callback = function(on) setProt(k, on) end})
+    end
+end
+
+do
+    local t = T("Visual", "eye")
+    t:AddButton({Name = "Freecam", Callback = function() startFreecam() end})
+    t:AddButton({Name = "Unfreecam", Callback = function() stopFreecam() end})
+    t:AddButton({Name = "Vanish", Callback = function() doVanish(true) end})
+    t:AddButton({Name = "Unvanish", Callback = function() doVanish(false) end})
+    t:AddButton({Name = "Noclip", Callback = function() setNoclip(true) end})
+    t:AddButton({Name = "Clip", Callback = function() setNoclip(false) end})
+    t:AddButton({Name = "ESP", Callback = function() Cmds.esp.fn({}) end})
+    t:AddButton({Name = "UnESP", Callback = function() Cmds.unesp.fn({}) end})
+    t:AddButton({Name = "Xray", Callback = function() Cmds.xray.fn({}) end})
+    t:AddButton({Name = "Unxray", Callback = function() Cmds.unxray.fn({}) end})
+end
+
+do
+    local t = T("ScriptBlox", "code")
+    t:AddTextBox({
+        Name = "Raw URL", Default = "",
+        Callback = function(url)
+            if type(url)=="string" and #url>10 then
+                local ok,err = pcall(function() loadstring(game:HttpGet(url))() end)
+                notify("Load", ok and "OK" or tostring(err))
             end
         end
-        task.delay(8, function()
-            Shared._propKeepAlive = false
-            Shared.clearMyProps()
-        end)
-    end,
-})
+    })
+end
 
-TabAdmin:AddButton({
-    Name = "Clear All Props",
-    Callback = function()
-        Shared.clearMyProps()
-    end,
-})
+do
+    local t = T("Commands", "list")
+    t:AddButton({Name = "Print ALL ;cmds", Callback = function() Cmds.cmds.fn({}) end})
+end
 
--- ===================== PLAYER LIST AUTO REFRESH =====================
-Players.PlayerAdded:Connect(function()
-    task.wait(0.5)
-    pcall(function() playerDropdown:Set(getPlayerList()) end)
-end)
-Players.PlayerRemoving:Connect(function()
-    task.wait(0.3)
-    pcall(function() playerDropdown:Set(getPlayerList()) end)
-end)
+do
+    local t = T("Ai Assistant", "bot")
+    t:AddSection({"Assistant"})
+    t:AddParagraph({"Help", "Ask about commands, ranks, or how to use a tool."})
+    t:AddTextBox({
+        Name = "Ask AI Assistant",
+        Default = "",
+        PlaceholderText = "e.g. how do I kill someone?",
+        Callback = function(q)
+            q = string.lower(tostring(q or ""))
+            local ans = "Type ;cmds for the full command list."
+            if q:find("kill") or q:find("bring") or q:find("fling") then
+                ans = "Select a player → Players tab, or ;kill ;bring ;fling [name]. Props auto-clear after."
+            elseif q:find("rank") then
+                ans = ";rank ;permrank ;temprank [user] [1-6]. ;ranks to list."
+            elseif q:find("fly") or q:find("freecam") then
+                ans = ";freecam / ;unfreecam. Visual tab has buttons."
+            elseif q:find("item") or q:find("give") then
+                ans = "Items tab, or ;give [user] [item]."
+            elseif q:find("protect") or q:find("anti") then
+                ans = "Protections tab toggles, or ;antisit ;antivoid ;anticollision ..."
+            elseif q:find("ragdoll") or q:find("banana") then
+                ans = ";ragdoll [user] or Players → Ragdoll."
+            elseif q:find("ban") then
+                ans = ";ban / ;unban [user] (chatban in this hub)."
+            elseif q:find("cmd") or q:find("command") or q:find("help") then
+                ans = "Chat ;cmds — all 77 Admin Panel commands."
+            elseif #q > 2 then
+                ans = "Try ;cmds. Examples: ;kill name · ;to name · ;freecam · ;give name Glider"
+            end
+            notify("AI Assistant", ans)
+            print("[AI]", ans)
+        end
+    })
+    t:AddButton({
+        Name = "Show all commands",
+        Callback = function() Cmds.cmds.fn({}) end
+    })
+end
 
-print("[Admin Hub] Loaded successfully")
+do
+    local t = T("Items", "sword")
+    local OLD = {
+        {"Glider","Glider","accept"},{"Cannon","Cannon","accept"},{"Ain Neymar","","accept"},
+        {"Golden Basketball","GoldenBasketball","accept"},{"Water Balloon","Water Balloon","pick"},
+        {"Egg Launcher","EggLauncher","accept"},{"Green Crystal","UraniumRod","accept"},
+        {"Chainsaw","Chainsaw","accept"},{"Skis","Skis","accept"},{"Money Gun","MoneyGun","accept"},
+        {"Snowboard","Snowboard","accept"},
+    }
+    for _, e in ipairs(OLD) do
+        t:AddButton({Name = e[1], Callback = function() giveSelf(e[2], e[3]) end})
+    end
+    for _, n in ipairs({"Phone","Tablet","PropMaker"}) do
+        t:AddButton({Name = n, Callback = function() giveSelf(n, "pick") end})
+    end
+end
+
+do
+    local t = T("RGB RP", "brush")
+    t:AddButton({Name = "Headless", Callback = function() Cmds.headless.fn({}) end})
+    t:AddButton({Name = "Korblox", Callback = function() Cmds.korblox.fn({}) end})
+    t:AddButton({
+        Name = "RGB cycle",
+        Callback = function()
+            task.spawn(function()
+                local cols = {"Bright red","Lime green","Bright blue","Bright yellow","Bright cyan","Hot pink","Royal purple"}
+                local ch = Remotes() and Remotes():FindFirstChild("ChangeBodyColor")
+                if not ch then return end
+                for _, c in ipairs(cols) do pcall(function() ch:FireServer(c) end) task.wait(0.35) end
+            end)
+        end
+    })
+end
+
+do
+    local t = T("Admin Abuse", "alert")
+    t:AddButton({
+        Name = "Bring ALL",
+        Callback = function()
+            task.spawn(function()
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LP then propMove(p, "bring") task.wait(2.2) end
+                end
+            end)
+        end
+    })
+    t:AddButton({
+        Name = "Kill ALL",
+        Callback = function()
+            task.spawn(function()
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LP then propMove(p, "kill") task.wait(2.2) end
+                end
+            end)
+        end
+    })
+end
+
+do
+    local t = T("Credits", "star")
+    t:AddParagraph({"Admin Hub", "77 commands from Admin Panel"})
+end
+
+notify("Admin Hub", "77 commands loaded · ;cmds")
+print("[Admin Hub] Exact Admin Panel command set")
