@@ -24,7 +24,7 @@ if not okLib or type(Lib) ~= "table" or not Lib.MakeWindow then
     return
 end
 
-local Window = Lib:MakeWindow({ Title = "Admin Hub", Flags = "AdminHub", LoadText = "Admin Hub" })
+local Window = Lib:MakeWindow({ Title = "Admin Hub", Flags = "AdminHub", LoadText = "Loading Admin Hub..." })
 pcall(function()
     Window:AddMinimizeButton({
         Button = { BackgroundTransparency = 1, Image = "rbxassetid://134266914727471" },
@@ -693,72 +693,123 @@ local function runCmd(msg)
 end
 LP.Chatted:Connect(runCmd)
 
--- ===================== TABS =====================
-local function T(n, i) return Window:MakeTab({ n, i or "home" }) end
-
-do
-    local t = T("Overview", "home")
-    t:AddSection({"Admin Hub"})
-    t:AddParagraph({"User", LP.Name .. " · " .. LP.UserId})
-    t:AddButton({Name = ";cmds — list all", Callback = function() Cmds.cmds.fn({}) end})
+-- ===================== TABS (clean layout) =====================
+local function Tab(name, icon)
+    return Window:MakeTab({ name, icon or "home" })
 end
 
+-- OVERVIEW
 do
-    local t = T("Chat", "chat")
-    t:AddParagraph({"Prefix", function() return PREFIX end})
-    t:AddParagraph({"Info", "All 77 Admin Panel commands work with " .. PREFIX})
+    local t = Tab("Overview", "home")
+    t:AddSection({ "Welcome" })
+    t:AddParagraph({ "Signed in", LP.Name })
+    t:AddParagraph({ "UserId", tostring(LP.UserId) })
+    t:AddParagraph({ "Prefix", function() return PREFIX .. "  ·  type " .. PREFIX .. "cmds" end })
+    t:AddSection({ "Quick" })
+    t:AddButton({
+        Name = "Show all commands",
+        Callback = function() Cmds.cmds.fn({}) end
+    })
+    t:AddButton({
+        Name = "Anti-AFK",
+        Callback = function() Cmds.antiafk.fn({}) end
+    })
 end
 
+-- CHAT
 do
-    local t = T("Players", "user")
+    local t = Tab("Chat", "chat")
+    t:AddSection({ "Chat tools" })
+    t:AddParagraph({ "How to use", "Type commands in Roblox chat with prefix " .. PREFIX })
+    t:AddButton({
+        Name = "List commands",
+        Callback = function() Cmds.cmds.fn({}) end
+    })
+    t:AddSection({ "Moderation" })
+    t:AddTextBox({
+        Name = "Chatban user",
+        Default = "",
+        PlaceholderText = "Username",
+        Callback = function(v) Cmds.ban.fn({ tostring(v) }) end
+    })
+    t:AddTextBox({
+        Name = "Unban user",
+        Default = "",
+        PlaceholderText = "Username",
+        Callback = function(v) Cmds.unban.fn({ tostring(v) }) end
+    })
+end
+
+-- PLAYERS
+do
+    local t = Tab("Players", "user")
     local dd
     pcall(function()
         dd = t:AddDropdown({
-            Name = "Player", Default = "", Options = names(),
+            Name = "Select player",
+            Default = "",
+            Options = names(),
             Callback = function(v) Selected = tostring(v or "") end
         })
     end)
-    t:AddButton({Name = "Refresh list", Callback = function()
-        if dd and dd.Refresh then pcall(function() dd:Refresh(names()) end) end
-        notify("Players", #Players:GetPlayers() .. " online")
-    end})
-    t:AddSection({"Actions (auto-clear props)"})
-    for _, m in ipairs({"bring", "kill", "fling"}) do
-        t:AddButton({Name = m:sub(1,1):upper()..m:sub(2), Callback = function()
-            local p = resolve(Selected)
-            if p then propMove(p, m) else notify("Players", "Select a player") end
-        end})
-    end
-    t:AddButton({Name = "Ragdoll", Callback = function()
-        Cmds.ragdoll.fn({Selected})
-    end})
-    t:AddButton({Name = "Teleport to", Callback = function() Cmds.to.fn({Selected}) end})
-    t:AddButton({Name = "View / Spectate", Callback = function() Cmds.view.fn({Selected}) end})
-    t:AddButton({Name = "Unview", Callback = function() Cmds.unview.fn({}) end})
-    t:AddButton({Name = "ESP on target", Callback = function() Cmds.esp.fn({Selected}) end})
-    t:AddSection({"Give item to selected"})
+    t:AddButton({
+        Name = "Refresh players",
+        Callback = function()
+            if dd and dd.Refresh then pcall(function() dd:Refresh(names()) end) end
+            notify("Players", #Players:GetPlayers() .. " online")
+        end
+    })
+    t:AddSection({ "Combat" })
+    t:AddButton({ Name = "Bring", Callback = function()
+        local p = resolve(Selected)
+        if p then propMove(p, "bring") else notify("Players", "Select a player first") end
+    end })
+    t:AddButton({ Name = "Kill", Callback = function()
+        local p = resolve(Selected)
+        if p then propMove(p, "kill") else notify("Players", "Select a player first") end
+    end })
+    t:AddButton({ Name = "Fling", Callback = function()
+        local p = resolve(Selected)
+        if p then propMove(p, "fling") else notify("Players", "Select a player first") end
+    end })
+    t:AddButton({ Name = "Ragdoll", Callback = function() Cmds.ragdoll.fn({ Selected }) end })
+    t:AddSection({ "Movement" })
+    t:AddButton({ Name = "Teleport to player", Callback = function() Cmds.to.fn({ Selected }) end })
+    t:AddButton({ Name = "Spectate", Callback = function() Cmds.view.fn({ Selected }) end })
+    t:AddButton({ Name = "Stop spectate", Callback = function() Cmds.unview.fn({}) end })
+    t:AddSection({ "ESP" })
+    t:AddButton({ Name = "ESP on", Callback = function() Cmds.esp.fn({ Selected }) end })
+    t:AddButton({ Name = "ESP off", Callback = function() Cmds.unesp.fn({}) end })
+    t:AddSection({ "Give item" })
     t:AddTextBox({
-        Name = "Item name", Default = "Glider",
+        Name = "Item name",
+        Default = "Glider",
+        PlaceholderText = "Glider",
         Callback = function(v)
             local p = resolve(Selected)
-            if p then giveTo(p, tostring(v)) notify("Give", p.Name .. " ← " .. tostring(v))
-            else notify("Give", "Select player") end
+            if p then
+                giveTo(p, tostring(v))
+                notify("Give", p.Name .. " ← " .. tostring(v))
+            else
+                notify("Give", "Select a player first")
+            end
         end
     })
 end
 
+-- INFO PLAYERS
 do
-    local t = T("Info Players", "info")
-    t:AddSection({"Server"})
-    t:AddParagraph({"PlaceId", tostring(game.PlaceId)})
-    t:AddParagraph({"JobId", tostring(game.JobId)})
+    local t = Tab("Info", "info")
+    t:AddSection({ "Server" })
+    t:AddParagraph({ "Place", tostring(game.PlaceId) })
+    t:AddParagraph({ "Players", function()
+        return tostring(#Players:GetPlayers()) .. " / " .. tostring(Players.MaxPlayers or "?")
+    end })
+    t:AddSection({ "Tools" })
     t:AddButton({
-        Name = "Refresh player count",
-        Callback = function()
-            notify("Info", #Players:GetPlayers() .. " / " .. tostring(Players.MaxPlayers))
-        end
+        Name = "Print everyone (F9)",
+        Callback = function() Cmds.checkplayers.fn({}) end
     })
-    t:AddButton({Name = "Print all (;checkplayers)", Callback = function() Cmds.checkplayers.fn({}) end})
     t:AddButton({
         Name = "Copy my UserId",
         Callback = function()
@@ -770,94 +821,139 @@ do
         Name = "Copy selected UserId",
         Callback = function()
             local p = resolve(Selected)
-            if p then
-                pcall(function() if setclipboard then setclipboard(tostring(p.UserId)) end end)
-                notify("Info", p.Name .. " · " .. p.UserId)
-            else notify("Info", "Select player in Players tab") end
+            if not p then notify("Info", "Select player in Players") return end
+            pcall(function() if setclipboard then setclipboard(tostring(p.UserId)) end end)
+            notify("Info", p.Name .. " · " .. p.UserId)
         end
     })
-    t:AddButton({Name = "Banlist", Callback = function() Cmds.banlist.fn({}) end})
-    t:AddButton({Name = "Ranks", Callback = function() Cmds.ranks.fn({}) end})
+    t:AddSection({ "Lists" })
+    t:AddButton({ Name = "Ban list", Callback = function() Cmds.banlist.fn({}) end })
+    t:AddButton({ Name = "Rank list", Callback = function() Cmds.ranks.fn({}) end })
 end
 
+-- SUPPORT GAMES
 do
-    local t = T("Support Games", "gamepad")
-    t:AddParagraph({"Brookhaven", "Supported"})
-    t:AddButton({Name = "Print games", Callback = function()
-        for id, tx in pairs(SupportedGames) do print(id, tx) end
-    end})
+    local t = Tab("Games", "gamepad")
+    t:AddSection({ "Supported" })
+    t:AddParagraph({ "Focus", "Brookhaven RP" })
+    t:AddButton({
+        Name = "Print custom games",
+        Callback = function()
+            local n = 0
+            for id, tx in pairs(SupportedGames) do
+                print(id, tx)
+                n += 1
+            end
+            notify("Games", n .. " saved")
+        end
+    })
 end
 
+-- PROTECTIONS
 do
-    local t = T("Protections", "shield")
-    for _, k in ipairs({"antisit","antivoid","anticollision","anticrash","antilagserver","antiskybox","bypassprop","antibanana"}) do
-        t:AddToggle({Name = k, Default = false, Callback = function(on) setProt(k, on) end})
+    local t = Tab("Protect", "shield")
+    t:AddSection({ "Core" })
+    for _, k in ipairs({
+        { "Anti Sit", "antisit" },
+        { "Anti Void", "antivoid" },
+        { "Anti Collision", "anticollision" },
+        { "Anti Crash", "anticrash" },
+        { "Anti Lag Server", "antilagserver" },
+        { "Anti Skybox / Nuke", "antiskybox" },
+        { "Bypass Prop", "bypassprop" },
+        { "Anti Banana", "antibanana" },
+    }) do
+        local label, key = k[1], k[2]
+        t:AddToggle({
+            Name = label,
+            Default = false,
+            Callback = function(on) setProt(key, on) end
+        })
     end
 end
 
+-- VISUAL
 do
-    local t = T("Visual", "eye")
-    t:AddButton({Name = "Freecam", Callback = function() startFreecam() end})
-    t:AddButton({Name = "Unfreecam", Callback = function() stopFreecam() end})
-    t:AddButton({Name = "Vanish", Callback = function() doVanish(true) end})
-    t:AddButton({Name = "Unvanish", Callback = function() doVanish(false) end})
-    t:AddButton({Name = "Noclip", Callback = function() setNoclip(true) end})
-    t:AddButton({Name = "Clip", Callback = function() setNoclip(false) end})
-    t:AddButton({Name = "ESP", Callback = function() Cmds.esp.fn({}) end})
-    t:AddButton({Name = "UnESP", Callback = function() Cmds.unesp.fn({}) end})
-    t:AddButton({Name = "Xray", Callback = function() Cmds.xray.fn({}) end})
-    t:AddButton({Name = "Unxray", Callback = function() Cmds.unxray.fn({}) end})
+    local t = Tab("Visual", "eye")
+    t:AddSection({ "Camera" })
+    t:AddButton({ Name = "Freecam ON", Callback = function() startFreecam() notify("Visual", "Freecam · WASD QE") end })
+    t:AddButton({ Name = "Freecam OFF", Callback = function() stopFreecam() end })
+    t:AddSection({ "Character" })
+    t:AddButton({ Name = "Vanish", Callback = function() doVanish(true) end })
+    t:AddButton({ Name = "Unvanish", Callback = function() doVanish(false) end })
+    t:AddButton({ Name = "Noclip ON", Callback = function() setNoclip(true) end })
+    t:AddButton({ Name = "Noclip OFF", Callback = function() setNoclip(false) end })
+    t:AddSection({ "World" })
+    t:AddButton({ Name = "X-Ray ON", Callback = function() Cmds.xray.fn({}) end })
+    t:AddButton({ Name = "X-Ray OFF", Callback = function() Cmds.unxray.fn({}) end })
+    t:AddButton({ Name = "ESP ON", Callback = function() Cmds.esp.fn({}) end })
+    t:AddButton({ Name = "ESP OFF", Callback = function() Cmds.unesp.fn({}) end })
+    t:AddButton({ Name = "Spin", Callback = function() Cmds.spin.fn({ "12" }) end })
+    t:AddButton({ Name = "Stop spin", Callback = function() Cmds.unspin.fn({}) end })
 end
 
+-- SCRIPTBLOX
 do
-    local t = T("ScriptBlox", "code")
+    local t = Tab("Scripts", "code")
+    t:AddSection({ "Load" })
     t:AddTextBox({
-        Name = "Raw URL", Default = "",
+        Name = "Raw script URL",
+        Default = "",
+        PlaceholderText = "https://raw.githubusercontent.com/...",
         Callback = function(url)
-            if type(url)=="string" and #url>10 then
-                local ok,err = pcall(function() loadstring(game:HttpGet(url))() end)
-                notify("Load", ok and "OK" or tostring(err))
+            if type(url) == "string" and #url > 10 then
+                local ok, err = pcall(function() loadstring(game:HttpGet(url))() end)
+                notify("Scripts", ok and "Loaded" or tostring(err))
             end
         end
     })
 end
 
+-- COMMANDS
 do
-    local t = T("Commands", "list")
-    t:AddButton({Name = "Print ALL ;cmds", Callback = function() Cmds.cmds.fn({}) end})
+    local t = Tab("Commands", "list")
+    t:AddSection({ "Reference" })
+    t:AddParagraph({ "Total", "77 commands from Admin Panel" })
+    t:AddButton({
+        Name = "Print full list (F9)",
+        Callback = function() Cmds.cmds.fn({}) end
+    })
+    t:AddSection({ "Examples" })
+    t:AddParagraph({ "Combat", ";bring name  ·  ;kill name  ·  ;fling name" })
+    t:AddParagraph({ "Move", ";to name  ·  ;freecam  ·  ;vanish" })
+    t:AddParagraph({ "Items", ";give name Glider" })
 end
 
+-- AI
 do
-    local t = T("Ai Assistant", "bot")
-    t:AddSection({"Assistant"})
-    t:AddParagraph({"Help", "Ask about commands, ranks, or how to use a tool."})
+    local t = Tab("AI", "bot")
+    t:AddSection({ "Assistant" })
+    t:AddParagraph({ "Tip", "Ask how to use a command or feature" })
     t:AddTextBox({
-        Name = "Ask AI Assistant",
+        Name = "Your question",
         Default = "",
-        PlaceholderText = "e.g. how do I kill someone?",
+        PlaceholderText = "How do I kill someone?",
         Callback = function(q)
             q = string.lower(tostring(q or ""))
-            local ans = "Type ;cmds for the full command list."
+            local ans = "Type ;cmds for every command."
             if q:find("kill") or q:find("bring") or q:find("fling") then
-                ans = "Select a player → Players tab, or ;kill ;bring ;fling [name]. Props auto-clear after."
+                ans = "Players tab → select → Bring/Kill/Fling. Or ;kill name. Props clear automatically."
             elseif q:find("rank") then
-                ans = ";rank ;permrank ;temprank [user] [1-6]. ;ranks to list."
-            elseif q:find("fly") or q:find("freecam") then
-                ans = ";freecam / ;unfreecam. Visual tab has buttons."
+                ans = ";rank user number · ;permrank · ;temprank · ;ranks"
+            elseif q:find("freecam") or q:find("camera") then
+                ans = "Visual → Freecam ON, or ;freecam / ;unfreecam"
             elseif q:find("item") or q:find("give") then
-                ans = "Items tab, or ;give [user] [item]."
+                ans = "Items tab, or ;give user ItemName"
             elseif q:find("protect") or q:find("anti") then
-                ans = "Protections tab toggles, or ;antisit ;antivoid ;anticollision ..."
-            elseif q:find("ragdoll") or q:find("banana") then
-                ans = ";ragdoll [user] or Players → Ragdoll."
+                ans = "Protect tab, or ;antisit ;antivoid ;anticollision"
+            elseif q:find("ragdoll") then
+                ans = "Players → Ragdoll, or ;ragdoll name"
             elseif q:find("ban") then
-                ans = ";ban / ;unban [user] (chatban in this hub)."
-            elseif q:find("cmd") or q:find("command") or q:find("help") then
-                ans = "Chat ;cmds — all 77 Admin Panel commands."
-            elseif #q > 2 then
-                ans = "Try ;cmds. Examples: ;kill name · ;to name · ;freecam · ;give name Glider"
+                ans = ";ban user / ;unban user"
+            elseif q:find("help") or q:find("cmd") or #q > 2 then
+                ans = ";cmds · Examples: ;kill name · ;to name · ;freecam · ;give name Glider"
             end
-            notify("AI Assistant", ans)
+            notify("AI", ans)
             print("[AI]", ans)
         end
     })
@@ -867,68 +963,112 @@ do
     })
 end
 
+-- ITEMS
 do
-    local t = T("Items", "sword")
+    local t = Tab("Items", "sword")
+    t:AddSection({ "Old items" })
     local OLD = {
-        {"Glider","Glider","accept"},{"Cannon","Cannon","accept"},{"Ain Neymar","","accept"},
-        {"Golden Basketball","GoldenBasketball","accept"},{"Water Balloon","Water Balloon","pick"},
-        {"Egg Launcher","EggLauncher","accept"},{"Green Crystal","UraniumRod","accept"},
-        {"Chainsaw","Chainsaw","accept"},{"Skis","Skis","accept"},{"Money Gun","MoneyGun","accept"},
-        {"Snowboard","Snowboard","accept"},
+        { "Glider", "Glider", "accept" },
+        { "Cannon", "Cannon", "accept" },
+        { "Ain Neymar", "", "accept" },
+        { "Golden Basketball", "GoldenBasketball", "accept" },
+        { "Water Balloon", "Water Balloon", "pick" },
+        { "Egg Launcher", "EggLauncher", "accept" },
+        { "Green Crystal", "UraniumRod", "accept" },
+        { "Chainsaw", "Chainsaw", "accept" },
+        { "Skis", "Skis", "accept" },
+        { "Money Gun", "MoneyGun", "accept" },
+        { "Snowboard", "Snowboard", "accept" },
     }
     for _, e in ipairs(OLD) do
-        t:AddButton({Name = e[1], Callback = function() giveSelf(e[2], e[3]) end})
+        t:AddButton({
+            Name = e[1],
+            Callback = function()
+                giveSelf(e[2], e[3])
+                notify("Item", e[1])
+            end
+        })
     end
-    for _, n in ipairs({"Phone","Tablet","PropMaker"}) do
-        t:AddButton({Name = n, Callback = function() giveSelf(n, "pick") end})
+    t:AddSection({ "Devices" })
+    for _, n in ipairs({ "Phone", "Tablet", "PropMaker" }) do
+        t:AddButton({
+            Name = n,
+            Callback = function()
+                giveSelf(n, "pick")
+                notify("Item", n)
+            end
+        })
     end
 end
 
+-- RGB
 do
-    local t = T("RGB RP", "brush")
-    t:AddButton({Name = "Headless", Callback = function() Cmds.headless.fn({}) end})
-    t:AddButton({Name = "Korblox", Callback = function() Cmds.korblox.fn({}) end})
+    local t = Tab("Avatar", "brush")
+    t:AddSection({ "Body" })
+    t:AddButton({ Name = "Headless", Callback = function() Cmds.headless.fn({}) end })
+    t:AddButton({ Name = "Korblox", Callback = function() Cmds.korblox.fn({}) end })
     t:AddButton({
-        Name = "RGB cycle",
+        Name = "RGB color cycle",
         Callback = function()
             task.spawn(function()
-                local cols = {"Bright red","Lime green","Bright blue","Bright yellow","Bright cyan","Hot pink","Royal purple"}
+                local cols = {
+                    "Bright red", "Lime green", "Bright blue", "Bright yellow",
+                    "Bright cyan", "Hot pink", "Royal purple"
+                }
                 local ch = Remotes() and Remotes():FindFirstChild("ChangeBodyColor")
-                if not ch then return end
-                for _, c in ipairs(cols) do pcall(function() ch:FireServer(c) end) task.wait(0.35) end
-            end)
-        end
-    })
-end
-
-do
-    local t = T("Admin Abuse", "alert")
-    t:AddButton({
-        Name = "Bring ALL",
-        Callback = function()
-            task.spawn(function()
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= LP then propMove(p, "bring") task.wait(2.2) end
-                end
-            end)
-        end
-    })
-    t:AddButton({
-        Name = "Kill ALL",
-        Callback = function()
-            task.spawn(function()
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= LP then propMove(p, "kill") task.wait(2.2) end
+                if not ch then notify("Avatar", "No color remote") return end
+                for _, c in ipairs(cols) do
+                    pcall(function() ch:FireServer(c) end)
+                    task.wait(0.35)
                 end
             end)
         end
     })
 end
 
+-- ADMIN ABUSE
 do
-    local t = T("Credits", "star")
-    t:AddParagraph({"Admin Hub", "77 commands from Admin Panel"})
+    local t = Tab("Abuse", "alert")
+    t:AddSection({ "Mass actions" })
+    t:AddParagraph({ "Note", "Bring/Kill use props · auto-clear after each target" })
+    t:AddButton({
+        Name = "Bring all players",
+        Callback = function()
+            task.spawn(function()
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LP then
+                        propMove(p, "bring")
+                        task.wait(2.2)
+                    end
+                end
+            end)
+            notify("Abuse", "Bring all started")
+        end
+    })
+    t:AddButton({
+        Name = "Kill all players",
+        Callback = function()
+            task.spawn(function()
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LP then
+                        propMove(p, "kill")
+                        task.wait(2.2)
+                    end
+                end
+            end)
+            notify("Abuse", "Kill all started")
+        end
+    })
 end
 
-notify("Admin Hub", "77 commands loaded · ;cmds")
-print("[Admin Hub] Exact Admin Panel command set")
+-- CREDITS
+do
+    local t = Tab("Credits", "star")
+    t:AddSection({ "Admin Hub" })
+    t:AddParagraph({ "UI", "Slayer Library" })
+    t:AddParagraph({ "Commands", "77 from Admin Panel" })
+    t:AddParagraph({ "User", LP.Name })
+end
+
+notify("Admin Hub", "Ready · " .. PREFIX .. "cmds")
+print("[Admin Hub] Clean tabs loaded")
