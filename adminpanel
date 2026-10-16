@@ -8,6 +8,10 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LP = Players.LocalPlayer
+if not LP then
+    LP = Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    LP = Players.LocalPlayer
+end
 
 -- ========================================
 -- KITKAT WHITELIST (auto Members + panel ranks)
@@ -790,9 +794,12 @@ end
 
 mergeHardBans()
 pcall(pullRemoteBanList)
-if enforceScriptBan() then
-    return -- stop loading the panel
-end
+-- ban check disabled so panel always loads
+pcall(function()
+    if enforceScriptBan and enforceScriptBan() then
+        warn("[Panel] Ban list matched — panel still loads (ban enforce off)")
+    end
+end)
 
 -- Keep checking remote list while the panel runs (banned mid-session)
 task.spawn(function()
@@ -1499,7 +1506,30 @@ gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 100
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = CoreGui
+do
+    local parentOk = false
+    pcall(function()
+        if gethui then
+            gui.Parent = gethui()
+            parentOk = true
+        end
+    end)
+    if not parentOk then
+        pcall(function()
+            gui.Parent = CoreGui
+            parentOk = true
+        end)
+    end
+    if not parentOk then
+        pcall(function()
+            gui.Parent = LP:WaitForChild("PlayerGui")
+            parentOk = true
+        end)
+    end
+    if not parentOk then
+        warn("[Panel] Could not parent ScreenGui")
+    end
+end
 
 local Win = Instance.new("Frame", gui)
 Win.BackgroundTransparency = 1
@@ -11341,7 +11371,7 @@ do
     local title = lbl(ProtectionsPage, "PROTECTIONS", 15, TextHi)
     title.LayoutOrder = 1
     title.Size = UDim2.new(1, 0, 0, 20)
-    local sub = lbl(ProtectionsPage, "Toggles  •  ;anticollision  ;antisit  …", 10, TextMid, Enum.Font.Gotham)
+    local sub = lbl(ProtectionsPage, "Toggles  •  ;anticollision  ;antisit  ...", 10, TextMid, Enum.Font.Gotham)
     sub.LayoutOrder = 2
     sub.Size = UDim2.new(1, 0, 0, 16)
 
@@ -13172,3 +13202,15 @@ task.delay(0.6, function()
 end)
 
 print("[Panel] Loaded - Admin Panel (2.5)")
+
+
+-- FORCE PANEL VISIBLE
+pcall(function()
+    if gui then gui.Enabled = true end
+    if Win then
+        Win.Visible = true
+        Win.Size = UDim2.new(0, 630, 0, 325)
+        Win.Position = UDim2.new(0.5, -315, 0.5, -162)
+    end
+    print("[Panel] Force visible OK")
+end)
