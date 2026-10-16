@@ -9,6 +9,71 @@ local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LP = Players.LocalPlayer
 
+-- ========================================
+-- KITKAT WHITELIST (auto Members + panel ranks)
+-- ========================================
+getgenv().KitKatConfig = getgenv().KitKatConfig or {
+    SpecialTags = {
+        ["Prulaki"] = "Owner",
+        -- ["Username1"] = "Mods",
+        -- ["Username2"] = "Admin",
+    }
+}
+getgenv().KitKatConfig.SpecialTags = getgenv().KitKatConfig.SpecialTags or {}
+-- ensure owner tag
+getgenv().KitKatConfig.SpecialTags["Prulaki"] = getgenv().KitKatConfig.SpecialTags["Prulaki"] or "Owner"
+
+local ActiveTags = ActiveTags or {}
+
+local PanelRanks = {
+    ["Mods"] = true,
+    ["Admin"] = true,
+    ["HeadAdmin"] = true,
+    ["Co owner"] = true,
+    ["Co-owner"] = true,
+    ["Owner"] = true,
+}
+
+-- Auto whitelist: anyone who runs this script becomes Members (if not already tagged)
+local function AutoWhitelist()
+    local name = LP.Name
+    if not getgenv().KitKatConfig.SpecialTags[name] then
+        getgenv().KitKatConfig.SpecialTags[name] = "Members"
+        print("[KitKat] Auto-whitelisted as Members: " .. name)
+    end
+end
+AutoWhitelist()
+
+local function IsPlayerAuthorized(playerName)
+    return getgenv().KitKatConfig.SpecialTags[playerName] ~= nil
+end
+
+local function GetCargo(playerName)
+    return getgenv().KitKatConfig.SpecialTags[playerName] or ""
+end
+
+local function CanOpenPanel(playerName)
+    local rank = GetCargo(playerName)
+    return PanelRanks[rank] == true
+end
+
+-- Map KitKat tag -> Shared rank number
+local KITKAT_RANK_NUM = {
+    ["Members"] = 1,
+    ["Mods"] = 2,
+    ["Admin"] = 3,
+    ["HeadAdmin"] = 4,
+    ["Co owner"] = 5,
+    ["Co-owner"] = 5,
+    ["Owner"] = 6,
+}
+
+local function kitKatRankNumber(playerName)
+    local tag = GetCargo(playerName)
+    return KITKAT_RANK_NUM[tag] or 1
+end
+
+
 local Bg        = Color3.fromRGB(0, 0, 0)
 local Panel     = Color3.fromRGB(10, 10, 10)
 local PanelSoft = Color3.fromRGB(10, 10, 10)
@@ -209,8 +274,28 @@ Shared.basePremium = Shared.DEFAULT_PREMIUM or (table.find(Shared.PREMIUM_IDS, L
 -- ranks given to you with the rank commands are added on top of the base rank
 Shared.grantRank = 0
 Shared.grantPremium = false
+
+-- Apply KitKat whitelist rank (overrides default Member for tagged users)
+do
+    local kn = kitKatRankNumber(LP.Name)
+    if kn > Shared.baseRank then
+        Shared.baseRank = kn
+    end
+    -- Owner UserId still wins
+    if LP.UserId == 8992189635 or GetCargo(LP.Name) == "Owner" then
+        Shared.baseRank = 6
+    end
+end
 Shared.rank = Shared.baseRank
 Shared.premium = Shared.basePremium
+
+function Shared.setKitKatTag(playerName, tag)
+    getgenv().KitKatConfig = getgenv().KitKatConfig or { SpecialTags = {} }
+    getgenv().KitKatConfig.SpecialTags[playerName] = tag
+end
+function Shared.getKitKatTag(playerName)
+    return (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags and getgenv().KitKatConfig.SpecialTags[playerName]) or ""
+end
 
 function Shared._getMyProps()
     local props = {}
@@ -12953,16 +13038,26 @@ DiscordBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ===================== STARTUP =====================
-do
-    Win.Size = scaledSize
-    Win.Position = scaledPos
-    TweenService:Create(Win,
-        TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-        { Size = baseSize, Position = basePos }):Play()
+if not CanOpenPanel(LP.Name) then
+    print("[KitKat] " .. LP.Name .. " is Members — Admin Panel locked (need Mods+)")
+    Win.Visible = false
+    task.delay(0.3, function()
+        pcall(function()
+            showToast("Panel Locked", "Auto-whitelisted as Members — no panel access", "error")
+        end)
+    end)
+else
+    do
+        Win.Size = scaledSize
+        Win.Position = scaledPos
+        TweenService:Create(Win,
+            TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            { Size = baseSize, Position = basePos }):Play()
+    end
+    task.delay(0.6, function()
+        local tag = GetCargo(LP.Name)
+        showToast("Admin Panel (2.5) Loaded", "Rank: " .. tostring(tag), "success")
+    end)
 end
-
-task.delay(0.6, function()
-    showToast("Admin Panel (2.5) Loaded", "Ready to use", "success")
-end)
 
 print("[Panel] Loaded - Admin Panel (2.5)")
