@@ -8,10 +8,6 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LP = Players.LocalPlayer
-if not LP then
-    LP = Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-    LP = Players.LocalPlayer
-end
 
 -- ========================================
 -- KITKAT WHITELIST (auto Members + panel ranks)
@@ -47,11 +43,9 @@ local function AutoWhitelist()
     local display = LP.DisplayName
     local tags = getgenv().KitKatConfig.SpecialTags
     local added = false
-    -- Owner UserId always Owner rank (never Members)
     if LP.UserId == 8992189635 then
         tags[name] = "Owner"
         tags["Prulaki"] = "Owner"
-        getgenv().KitKatMyRank = "Owner"
     elseif not tags[name] then
         tags[name] = "Members"
         added = true
@@ -68,7 +62,7 @@ local function AutoWhitelist()
     print("[KitKat] Rank: " .. tostring(tags[name]))
     if tags[name] == "Members" then
         print("[KitKat] Members = script OK, Admin Panel OPEN")
-        print("[KitKat] Higher ranks unlock more commands")
+        print("[KitKat] All ranks can open the panel")
     else
         print("[KitKat] Panel access: YES")
     end
@@ -76,25 +70,15 @@ local function AutoWhitelist()
     return tags[name], added
 end
 local _myKitKatRank, _kitKatNew = AutoWhitelist()
-
--- When ANYONE runs the script they are Members (auto). Drop a detectable marker
--- so Owner ;verified can see them as Members (LaundryBasket + local flag).
 task.spawn(function()
     task.wait(1)
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
-        if tool then
-            tool:InvokeServer("PickingTools", "LaundryBasket")
-        end
+        if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
     end)
-    -- billboard on self so others with ESP-like checks... we use laundry for cross-client
-    pcall(function()
-        getgenv().KitKatScriptUser = true
-        getgenv().KitKatMyRank = getgenv().KitKatMyRank or "Members"
-    end)
+    getgenv().KitKatScriptUser = true
 end)
-
 
 local function IsPlayerAuthorized(playerName)
     return getgenv().KitKatConfig.SpecialTags[playerName] ~= nil
@@ -105,11 +89,8 @@ local function GetCargo(playerName)
 end
 
 local function CanOpenPanel(playerName)
-    -- Everyone who runs the script can open the panel (including Members)
-    if LP.UserId == 8992189635 then return true end
-    if IsPlayerAuthorized(playerName) then return true end
-    if IsPlayerAuthorized(LP.Name) then return true end
-    return true -- auto-whitelisted users always get panel
+    -- Members, Mods, Admin, HeadAdmin, Co-owner, Owner — ALL can open panel
+    return true
 end
 
 -- Map KitKat tag -> Shared rank number
@@ -794,12 +775,9 @@ end
 
 mergeHardBans()
 pcall(pullRemoteBanList)
--- ban check disabled so panel always loads
-pcall(function()
-    if enforceScriptBan and enforceScriptBan() then
-        warn("[Panel] Ban list matched — panel still loads (ban enforce off)")
-    end
-end)
+if enforceScriptBan() then
+    return -- stop loading the panel
+end
 
 -- Keep checking remote list while the panel runs (banned mid-session)
 task.spawn(function()
@@ -1506,29 +1484,12 @@ gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 100
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-do
-    local parentOk = false
-    pcall(function()
-        if gethui then
-            gui.Parent = gethui()
-            parentOk = true
-        end
-    end)
-    if not parentOk then
-        pcall(function()
-            gui.Parent = CoreGui
-            parentOk = true
-        end)
-    end
-    if not parentOk then
-        pcall(function()
-            gui.Parent = LP:WaitForChild("PlayerGui")
-            parentOk = true
-        end)
-    end
-    if not parentOk then
-        warn("[Panel] Could not parent ScreenGui")
-    end
+pcall(function()
+    if gethui then gui.Parent = gethui()
+    else gui.Parent = CoreGui end
+end)
+if not gui.Parent then
+    pcall(function() gui.Parent = LP:WaitForChild("PlayerGui") end)
 end
 
 local Win = Instance.new("Frame", gui)
@@ -5779,8 +5740,7 @@ function Shared.kickPlayer(targetPlayer)
 end
 
 function Shared.verifiedScan()
-    -- 1) Tag everyone in KitKat SpecialTags (this client) with their RANK name
-    -- 2) Also try LaundryBasket to find other script runners
+    -- Tag EVERY rank: Members / Mods / Admin / HeadAdmin / Co owner / Owner
     local rankColor = {
         ["Members"] = Color3.fromRGB(0, 180, 255),
         ["Mods"] = Color3.fromRGB(80, 140, 255),
@@ -5789,7 +5749,6 @@ function Shared.verifiedScan()
         ["Co owner"] = Color3.fromRGB(255, 160, 60),
         ["Co-owner"] = Color3.fromRGB(255, 160, 60),
         ["Owner"] = Color3.fromRGB(255, 80, 200),
-        ["Script User"] = Color3.fromRGB(0, 220, 180),
     }
     local function tagPlayer(player, tagTexto)
         if not (player and player.Character) then return false end
@@ -5814,14 +5773,12 @@ function Shared.verifiedScan()
         text.TextColor3 = rankColor[tagTexto] or Color3.fromRGB(0, 180, 255)
         text.Text = tostring(tagTexto)
         text.Parent = gui
-        -- Owner rainbow soft pulse
         if tagTexto == "Owner" then
             task.spawn(function()
                 local t0 = 0
                 while gui.Parent and text.Parent do
                     t0 += task.wait(0.08)
-                    local h = (t0 * 0.35) % 1
-                    text.TextColor3 = Color3.fromHSV(h, 0.85, 1)
+                    text.TextColor3 = Color3.fromHSV((t0 * 0.35) % 1, 0.85, 1)
                 end
             end)
         end
@@ -5832,7 +5789,7 @@ function Shared.verifiedScan()
     local tagged = 0
     local report = {}
 
-    -- Tag from whitelist first (rank names)
+    -- 1) Everyone in SpecialTags (all ranks)
     for _, player in ipairs(Players:GetPlayers()) do
         local rank = tags[player.Name] or tags[player.DisplayName]
         if rank and rank ~= "" then
@@ -5843,7 +5800,7 @@ function Shared.verifiedScan()
         end
     end
 
-    -- LaundryBasket pass for script users not in list
+    -- 2) Marker tool: anyone who ran the script → Members if not already tagged
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
@@ -5856,37 +5813,34 @@ function Shared.verifiedScan()
             if has then
                 local rank = tags[player.Name] or tags[player.DisplayName]
                 if not rank then
-                    -- auto Members: anyone who ran the script (has marker tool)
-                    if tagPlayer(player, "Members") then
+                    rank = "Members"
+                    pcall(function()
+                        getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
+                    end)
+                end
+                if tagPlayer(player, rank) then
+                    if not table.find(report, player.Name .. "=" .. rank) then
                         tagged += 1
-                        report[#report + 1] = player.Name .. "=Members"
-                        -- also remember on this client for next time
-                        pcall(function()
-                            getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
-                        end)
+                        report[#report + 1] = player.Name .. "=" .. rank
                     end
-                else
-                    -- refresh rank tag
-                    tagPlayer(player, rank)
                 end
             end
         end
         if showToast then
-            if tagged == 0 then
-                showToast("Verified", "None found — they must RUN this script first (auto Members)", "info")
+            if #report == 0 then
+                showToast("Verified", "None — they must RUN this script first", "info")
             else
-                showToast("Verified", tagged .. " tagged: " .. table.concat(report, ", "), "success")
+                showToast("Verified", table.concat(report, ", "), "success")
             end
         end
-        print("[KitKat] ;verified results:")
-        for _, line in ipairs(report) do print("  ", line) end
+        print("[KitKat] ;verified:")
+        for _, line in ipairs(report) do print(" ", line) end
     end)
 
-    -- immediate toast for whitelist hits
     if tagged > 0 and showToast then
-        showToast("Verified", "Whitelist tags: " .. tagged, "success")
+        showToast("Verified", "Ranks tagged: " .. tagged, "success")
     end
-    return true, "Scanning... " .. tostring(tagged) .. " from whitelist"
+    return true, "Verifying ranks..."
 end
 
 
@@ -11371,7 +11325,7 @@ do
     local title = lbl(ProtectionsPage, "PROTECTIONS", 15, TextHi)
     title.LayoutOrder = 1
     title.Size = UDim2.new(1, 0, 0, 20)
-    local sub = lbl(ProtectionsPage, "Toggles  •  ;anticollision  ;antisit  ...", 10, TextMid, Enum.Font.Gotham)
+    local sub = lbl(ProtectionsPage, "Toggles  •  ;anticollision  ;antisit  …", 10, TextMid, Enum.Font.Gotham)
     sub.LayoutOrder = 2
     sub.Size = UDim2.new(1, 0, 0, 16)
 
@@ -13187,7 +13141,7 @@ DiscordBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ===================== STARTUP =====================
--- Everyone (including Members) can open the panel
+-- All ranks open the panel (Members included)
 do
     Win.Visible = true
     Win.Size = scaledSize
@@ -13202,15 +13156,3 @@ task.delay(0.6, function()
 end)
 
 print("[Panel] Loaded - Admin Panel (2.5)")
-
-
--- FORCE PANEL VISIBLE
-pcall(function()
-    if gui then gui.Enabled = true end
-    if Win then
-        Win.Visible = true
-        Win.Size = UDim2.new(0, 630, 0, 325)
-        Win.Position = UDim2.new(0.5, -315, 0.5, -162)
-    end
-    print("[Panel] Force visible OK")
-end)
