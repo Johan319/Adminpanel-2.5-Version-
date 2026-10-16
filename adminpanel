@@ -35,14 +35,57 @@ local PanelRanks = {
 }
 
 -- Auto whitelist: anyone who runs this script becomes Members (if not already tagged)
+-- NOTE: this is LOCAL to each device (getgenv). Phone A cannot see Phone B's tags.
 local function AutoWhitelist()
+    getgenv().KitKatConfig = getgenv().KitKatConfig or { SpecialTags = {} }
+    getgenv().KitKatConfig.SpecialTags = getgenv().KitKatConfig.SpecialTags or {}
     local name = LP.Name
-    if not getgenv().KitKatConfig.SpecialTags[name] then
-        getgenv().KitKatConfig.SpecialTags[name] = "Members"
-        print("[KitKat] Auto-whitelisted as Members: " .. name)
+    local display = LP.DisplayName
+    local tags = getgenv().KitKatConfig.SpecialTags
+    local added = false
+    if not tags[name] then
+        tags[name] = "Members"
+        added = true
     end
+    -- also key by display name if different
+    if display and display ~= "" and display ~= name and not tags[display] then
+        tags[display] = tags[name] or "Members"
+    end
+    getgenv().KitKatWhitelisted = true
+    getgenv().KitKatMyRank = tags[name] or "Members"
+    print("[KitKat] ==========================")
+    print("[KitKat] You ARE whitelisted")
+    print("[KitKat] User: " .. name)
+    print("[KitKat] Rank: " .. tostring(tags[name]))
+    if tags[name] == "Members" then
+        print("[KitKat] Members = script OK, Admin Panel LOCKED")
+        print("[KitKat] Need Mods+ in SpecialTags to open panel")
+    else
+        print("[KitKat] Panel access: YES")
+    end
+    print("[KitKat] ==========================")
+    return tags[name], added
 end
-AutoWhitelist()
+local _myKitKatRank, _kitKatNew = AutoWhitelist()
+
+-- When ANYONE runs the script they are Members (auto). Drop a detectable marker
+-- so Owner ;verified can see them as Members (LaundryBasket + local flag).
+task.spawn(function()
+    task.wait(1)
+    pcall(function()
+        local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
+        local tool = RE and RE:FindFirstChild("1Too1l")
+        if tool then
+            tool:InvokeServer("PickingTools", "LaundryBasket")
+        end
+    end)
+    -- billboard on self so others with ESP-like checks... we use laundry for cross-client
+    pcall(function()
+        getgenv().KitKatScriptUser = true
+        getgenv().KitKatMyRank = getgenv().KitKatMyRank or "Members"
+    end)
+end)
+
 
 local function IsPlayerAuthorized(playerName)
     return getgenv().KitKatConfig.SpecialTags[playerName] ~= nil
@@ -5698,48 +5741,116 @@ function Shared.kickPlayer(targetPlayer)
 end
 
 function Shared.verifiedScan()
+    -- 1) Tag everyone in KitKat SpecialTags (this client) with their RANK name
+    -- 2) Also try LaundryBasket to find other script runners
+    local rankColor = {
+        ["Members"] = Color3.fromRGB(0, 180, 255),
+        ["Mods"] = Color3.fromRGB(80, 140, 255),
+        ["Admin"] = Color3.fromRGB(240, 90, 90),
+        ["HeadAdmin"] = Color3.fromRGB(240, 200, 80),
+        ["Co owner"] = Color3.fromRGB(255, 160, 60),
+        ["Co-owner"] = Color3.fromRGB(255, 160, 60),
+        ["Owner"] = Color3.fromRGB(255, 80, 200),
+        ["Script User"] = Color3.fromRGB(0, 220, 180),
+    }
+    local function tagPlayer(player, tagTexto)
+        if not (player and player.Character) then return false end
+        local head = player.Character:FindFirstChild("Head")
+        if not head then return false end
+        local old = head:FindFirstChild("AdminPanelTag")
+        if old then old:Destroy() end
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "AdminPanelTag"
+        gui.Size = UDim2.new(0, 260, 0, 52)
+        gui.StudsOffset = Vector3.new(0, 3.5, 0)
+        gui.AlwaysOnTop = true
+        gui.Adornee = head
+        gui.Parent = head
+        local text = Instance.new("TextLabel")
+        text.Size = UDim2.new(1, 0, 1, 0)
+        text.BackgroundTransparency = 1
+        text.Font = Enum.Font.GothamBold
+        text.TextScaled = true
+        text.TextStrokeTransparency = 0.15
+        text.TextStrokeColor3 = Color3.new(0, 0, 0)
+        text.TextColor3 = rankColor[tagTexto] or Color3.fromRGB(0, 180, 255)
+        text.Text = tostring(tagTexto)
+        text.Parent = gui
+        -- Owner rainbow soft pulse
+        if tagTexto == "Owner" then
+            task.spawn(function()
+                local t0 = 0
+                while gui.Parent and text.Parent do
+                    t0 += task.wait(0.08)
+                    local h = (t0 * 0.35) % 1
+                    text.TextColor3 = Color3.fromHSV(h, 0.85, 1)
+                end
+            end)
+        end
+        return true
+    end
+
+    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+    local tagged = 0
+    local report = {}
+
+    -- Tag from whitelist first (rank names)
+    for _, player in ipairs(Players:GetPlayers()) do
+        local rank = tags[player.Name] or tags[player.DisplayName]
+        if rank and rank ~= "" then
+            if tagPlayer(player, rank) then
+                tagged += 1
+                report[#report + 1] = player.Name .. "=" .. rank
+            end
+        end
+    end
+
+    -- LaundryBasket pass for script users not in list
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
         if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
     end)
-    task.delay(0.5, function()
-        local found = 0
+    task.delay(0.6, function()
         for _, player in ipairs(Players:GetPlayers()) do
             local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
                 or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
-            if has and player.Character then
-                found += 1
-                local head = player.Character:FindFirstChild("Head")
-                if head then
-                    local old = head:FindFirstChild("AdminPanelTag")
-                    if old then old:Destroy() end
-                    local gui = Instance.new("BillboardGui")
-                    gui.Name = "AdminPanelTag"
-                    gui.Size = UDim2.new(0, 240, 0, 50)
-                    gui.StudsOffset = Vector3.new(0, 3.5, 0)
-                    gui.AlwaysOnTop = true
-                    gui.Adornee = head
-                    gui.Parent = head
-                    local text = Instance.new("TextLabel")
-                    text.Size = UDim2.new(1, 0, 1, 0)
-                    text.BackgroundTransparency = 1
-                    text.Font = Enum.Font.GothamBold
-                    text.TextScaled = true
-                    text.TextStrokeTransparency = 0.2
-                    text.TextStrokeColor3 = Color3.new(0, 0, 0)
-                    text.TextColor3 = Color3.fromRGB(0, 180, 255)
-                    text.Text = "Script User"
-                    text.Parent = gui
+            if has then
+                local rank = tags[player.Name] or tags[player.DisplayName]
+                if not rank then
+                    -- auto Members: anyone who ran the script (has marker tool)
+                    if tagPlayer(player, "Members") then
+                        tagged += 1
+                        report[#report + 1] = player.Name .. "=Members"
+                        -- also remember on this client for next time
+                        pcall(function()
+                            getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
+                        end)
+                    end
+                else
+                    -- refresh rank tag
+                    tagPlayer(player, rank)
                 end
             end
         end
         if showToast then
-            showToast("Verified", "Tagged " .. tostring(found) .. " script user(s)", "success")
+            if tagged == 0 then
+                showToast("Verified", "None found — they must RUN this script first (auto Members)", "info")
+            else
+                showToast("Verified", tagged .. " tagged: " .. table.concat(report, ", "), "success")
+            end
         end
+        print("[KitKat] ;verified results:")
+        for _, line in ipairs(report) do print("  ", line) end
     end)
-    return true, "Scanning for script users..."
+
+    -- immediate toast for whitelist hits
+    if tagged > 0 and showToast then
+        showToast("Verified", "Whitelist tags: " .. tagged, "success")
+    end
+    return true, "Scanning... " .. tostring(tagged) .. " from whitelist"
 end
+
 
 function Shared.jumpscareLocal(imgId, soundId)
     pcall(function()
@@ -13039,11 +13150,17 @@ end)
 
 -- ===================== STARTUP =====================
 if not CanOpenPanel(LP.Name) then
-    print("[KitKat] " .. LP.Name .. " is Members — Admin Panel locked (need Mods+)")
+    -- Still WHITELISTED — just no panel (Members rank)
+    print("[KitKat] " .. LP.Name .. " is WHITELISTED as Members — panel locked")
     Win.Visible = false
     task.delay(0.3, function()
         pcall(function()
-            showToast("Panel Locked", "Auto-whitelisted as Members — no panel access", "error")
+            showToast("✅ Whitelisted", "Rank: Members (script only — no panel)", "success")
+        end)
+        task.delay(2.2, function()
+            pcall(function()
+                showToast("Panel Locked", "Add Mods+ in SpecialTags to open Admin Panel", "info")
+            end)
         end)
     end)
 else
