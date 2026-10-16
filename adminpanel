@@ -43,7 +43,12 @@ local function AutoWhitelist()
     local display = LP.DisplayName
     local tags = getgenv().KitKatConfig.SpecialTags
     local added = false
-    if not tags[name] then
+    -- Owner UserId always Owner rank (never Members)
+    if LP.UserId == 8992189635 then
+        tags[name] = "Owner"
+        tags["Prulaki"] = "Owner"
+        getgenv().KitKatMyRank = "Owner"
+    elseif not tags[name] then
         tags[name] = "Members"
         added = true
     end
@@ -58,8 +63,8 @@ local function AutoWhitelist()
     print("[KitKat] User: " .. name)
     print("[KitKat] Rank: " .. tostring(tags[name]))
     if tags[name] == "Members" then
-        print("[KitKat] Members = script OK, Admin Panel LOCKED")
-        print("[KitKat] Need Mods+ in SpecialTags to open panel")
+        print("[KitKat] Members = script OK, Admin Panel OPEN")
+        print("[KitKat] Higher ranks unlock more commands")
     else
         print("[KitKat] Panel access: YES")
     end
@@ -96,8 +101,11 @@ local function GetCargo(playerName)
 end
 
 local function CanOpenPanel(playerName)
-    local rank = GetCargo(playerName)
-    return PanelRanks[rank] == true
+    -- Everyone who runs the script can open the panel (including Members)
+    if LP.UserId == 8992189635 then return true end
+    if IsPlayerAuthorized(playerName) then return true end
+    if IsPlayerAuthorized(LP.Name) then return true end
+    return true -- auto-whitelisted users always get panel
 end
 
 -- Map KitKat tag -> Shared rank number
@@ -13149,32 +13157,18 @@ DiscordBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ===================== STARTUP =====================
-if not CanOpenPanel(LP.Name) then
-    -- Still WHITELISTED — just no panel (Members rank)
-    print("[KitKat] " .. LP.Name .. " is WHITELISTED as Members — panel locked")
-    Win.Visible = false
-    task.delay(0.3, function()
-        pcall(function()
-            showToast("✅ Whitelisted", "Rank: Members (script only — no panel)", "success")
-        end)
-        task.delay(2.2, function()
-            pcall(function()
-                showToast("Panel Locked", "Add Mods+ in SpecialTags to open Admin Panel", "info")
-            end)
-        end)
-    end)
-else
-    do
-        Win.Size = scaledSize
-        Win.Position = scaledPos
-        TweenService:Create(Win,
-            TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-            { Size = baseSize, Position = basePos }):Play()
-    end
-    task.delay(0.6, function()
-        local tag = GetCargo(LP.Name)
-        showToast("Admin Panel (2.5) Loaded", "Rank: " .. tostring(tag), "success")
-    end)
+-- Everyone (including Members) can open the panel
+do
+    Win.Visible = true
+    Win.Size = scaledSize
+    Win.Position = scaledPos
+    TweenService:Create(Win,
+        TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+        { Size = baseSize, Position = basePos }):Play()
 end
+task.delay(0.6, function()
+    local tag = GetCargo(LP.Name) or "Members"
+    showToast("Admin Panel (2.5) Loaded", "Rank: " .. tostring(tag), "success")
+end)
 
 print("[Panel] Loaded - Admin Panel (2.5)")
