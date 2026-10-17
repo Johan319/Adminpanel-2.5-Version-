@@ -323,20 +323,53 @@ do
             elseif cmd == "goner" and Shared.gonerSelf then Shared.gonerSelf()
             elseif cmd == "domainexpansion" and Shared.domainExpansionSelf then Shared.domainExpansionSelf()
             elseif cmd == "verifique" or cmd == "verified" then
-                -- every script user picks LaundryBasket so others can detect them
                 pcall(function()
                     local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
                     local tool = RE and RE:FindFirstChild("1Too1l")
                     if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
                 end)
-                -- tag myself with my rank (so local always sees own tag)
-                task.delay(0.4, function()
-                    if Shared.applyVerifiedTag then
-                        local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
-                        local rank = tags[LP.Name] or tags[LP.DisplayName] or "Members"
-                        Shared.applyVerifiedTag(LP, rank)
-                    end
+                local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+                local rank = tags[LP.Name] or tags[LP.DisplayName] or "Members"
+                if not tags[LP.Name] then
+                    pcall(function() getgenv().KitKatConfig.SpecialTags[LP.Name] = rank end)
+                end
+                -- tag self immediately
+                task.defer(function()
+                    if Shared.applyVerifiedTag then Shared.applyVerifiedTag(LP, rank) end
                 end)
+                -- announce on board so OTHER clients can tag us (backpack often hidden by FE)
+                local stagger = 0.3 + (LP.UserId % 7) * 0.35
+                task.delay(stagger, function()
+                    local rankSafe = tostring(rank):gsub("%s+", "_")
+                    Shared.WriteBoard(";apuser " .. LP.Name .. " " .. rankSafe)
+                    task.delay(0.55, function() Shared.WriteBoard(" ") end)
+                end)
+            elseif cmd == "apuser" then
+                -- ;apuser Username Rank  → tag that player on THIS client
+                if not alvo then return end
+                local uname, rnk = alvo:match("^(%S+)%s+(%S+)$")
+                if not uname then uname = alvo:match("^(%S+)") end
+                if not uname then return end
+                rnk = (rnk or "Members"):gsub("_", " ")
+                if rnk == "Co owner" or rnk == "Co-owner" then rnk = "Co-owner" end
+                local plr = Players:FindFirstChild(uname)
+                if not plr then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if string.lower(p.Name) == string.lower(uname)
+                            or string.lower(p.DisplayName) == string.lower(uname) then
+                            plr = p
+                            break
+                        end
+                    end
+                end
+                if plr then
+                    pcall(function()
+                        getgenv().KitKatConfig = getgenv().KitKatConfig or { SpecialTags = {} }
+                        getgenv().KitKatConfig.SpecialTags[plr.Name] = rnk
+                    end)
+                    if Shared.applyVerifiedTag then Shared.applyVerifiedTag(plr, rnk) end
+                    print("[Verified] tagged", plr.Name, rnk)
+                end
             end
         end)
     end
@@ -6222,70 +6255,51 @@ function Shared.applyVerifiedTag(player, rank)
 end
 
 function Shared.verifiedScan()
-    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
-    -- 1) Tell ALL script users to pick LaundryBasket (board)
+    -- Ask every script user to announce themselves on the school board
     if Shared.EnviarBoard then
         Shared.EnviarBoard("verifique", "")
+    elseif Shared.WriteBoard then
+        Shared.WriteBoard(";verifique")
+        task.delay(0.5, function() Shared.WriteBoard(" ") end)
     end
-    -- 2) Local pick too
+    -- local announce too
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
         if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
     end)
-
-    task.delay(0.85, function()
+    local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+    local myRank = tags[LP.Name] or tags[LP.DisplayName] or "Members"
+    if Shared.applyVerifiedTag then Shared.applyVerifiedTag(LP, myRank) end
+    task.delay(0.4, function()
+        local rankSafe = tostring(myRank):gsub("%s+", "_")
+        if Shared.WriteBoard then
+            Shared.WriteBoard(";apuser " .. LP.Name .. " " .. rankSafe)
+            task.delay(0.45, function() Shared.WriteBoard(" ") end)
+        end
+    end)
+    task.delay(1.2, function()
         local report = {}
         for _, player in ipairs(Players:GetPlayers()) do
-            local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
-                or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
             local rank = tags[player.Name] or tags[player.DisplayName]
-            if has then
-                if not rank or rank == "" then
-                    rank = "Members"
-                    pcall(function()
-                        getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
-                    end)
-                end
-            end
-            -- also tag people in SpecialTags even if laundry not replicated yet
-            if rank and rank ~= "" then
-                if Shared.applyVerifiedTag(player, rank) then
-                    report[#report + 1] = player.Name .. "=" .. rank
-                end
-            elseif has then
-                if Shared.applyVerifiedTag(player, "Members") then
-                    report[#report + 1] = player.Name .. "=Members"
-                end
+            local hasTag = player.Character and player.Character:FindFirstChild("Head")
+                and player.Character.Head:FindFirstChild("AdminPanelTag")
+            if rank then
+                report[#report+1] = player.Name .. "=" .. rank
+            elseif hasTag then
+                report[#report+1] = player.Name .. "=tagged"
             end
         end
-        -- retag after another wait (replication lag)
-        task.delay(0.7, function()
-            for _, player in ipairs(Players:GetPlayers()) do
-                local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
-                    or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
-                local rank = tags[player.Name] or tags[player.DisplayName]
-                if has and (not rank or rank == "") then
-                    rank = "Members"
-                    pcall(function() getgenv().KitKatConfig.SpecialTags[player.Name] = "Members" end)
-                end
-                if rank and rank ~= "" then
-                    Shared.applyVerifiedTag(player, rank)
-                elseif has then
-                    Shared.applyVerifiedTag(player, "Members")
-                end
-            end
-        end)
         if showToast then
             if #report == 0 then
-                showToast("Verified", "No script users yet — both must run script", "info")
+                showToast("Verified", "Only you so far — other phone must run THIS script + Board READY", "info")
             else
                 showToast("Verified", table.concat(report, ", "), "success")
             end
         end
         print("[Verified]", table.concat(report, ", "))
     end)
-    return true, "Verifying all ranks..."
+    return true, "Verifying all ranks via board..."
 end
 
 
