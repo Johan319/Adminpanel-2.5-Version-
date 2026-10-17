@@ -340,6 +340,188 @@ do
 end
 
 
+
+-- ===== Fly HD-style (Mods) — no Fly2 =====
+Shared.flyState = {
+    on = false,
+    speed = 50,
+    minSpeed = 25,
+    maxSpeed = 200,
+    flyForce = nil,
+    bodyGyro = nil,
+    conn = nil,
+    upPressed = false,
+    downPressed = false,
+    tiltAmount = 0,
+    inputConns = {},
+}
+local FLY_HEIGHT_OFFSET = 4
+local TILT_MAX = 25
+local TILT_INCREMENT = 1
+
+function Shared.stopFly()
+    local st = Shared.flyState
+    st.on = false
+    st.upPressed = false
+    st.downPressed = false
+    st.tiltAmount = 0
+    if st.conn then pcall(function() st.conn:Disconnect() end) st.conn = nil end
+    for _, c in ipairs(st.inputConns) do pcall(function() c:Disconnect() end) end
+    st.inputConns = {}
+    if st.flyForce then pcall(function() st.flyForce:Destroy() end) st.flyForce = nil end
+    if st.bodyGyro then pcall(function() st.bodyGyro:Destroy() end) st.bodyGyro = nil end
+    pcall(function()
+        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if h then
+            h.PlatformStand = false
+            h.Sit = false
+        end
+    end)
+    return true, "Fly OFF"
+end
+
+function Shared.startFly(speed)
+    local st = Shared.flyState
+    speed = tonumber(speed) or st.speed or 50
+    speed = math.clamp(speed, st.minSpeed, st.maxSpeed)
+    st.speed = speed
+    Shared.stopFly()
+    st.on = true
+    st.tiltAmount = 0
+
+    local char = LP.Character
+    if not char then return false, "No character" end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return false, "No root" end
+
+    local flyForce = Instance.new("BodyPosition")
+    flyForce.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    flyForce.Position = hrp.Position + Vector3.new(0, FLY_HEIGHT_OFFSET, 0)
+    flyForce.Name = "AdminPanelFlyForce"
+    flyForce.Parent = hrp
+
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.D = 50
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyGyro.P = 200
+    bodyGyro.Name = "AdminPanelFlyGyro"
+    bodyGyro.CFrame = hrp.CFrame
+    bodyGyro.Parent = hrp
+
+    st.flyForce = flyForce
+    st.bodyGyro = bodyGyro
+    hum.PlatformStand = true
+    hum.Sit = false
+
+    local DIRECTIONS = {
+        Left = Vector3.new(-1, 0, 0),
+        Right = Vector3.new(1, 0, 0),
+        Forwards = Vector3.new(0, 0, -1),
+        Backwards = Vector3.new(0, 0, 1),
+        Up = Vector3.new(0, 1, 0),
+        Down = Vector3.new(0, -1, 0),
+    }
+    local function getCF(part, isFor)
+        local cframe = part.CFrame
+        local noRot = CFrame.new(cframe.p)
+        local x, y, z = (workspace.CurrentCamera.CFrame - workspace.CurrentCamera.CFrame.p):toEulerAnglesXYZ()
+        return noRot * CFrame.Angles(isFor and z or x, y, z)
+    end
+    local function getNextMovement(deltaTime, spd)
+        local nextMove = Vector3.new()
+        local humanoid = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        local root = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not root then return CFrame.new(), nextMove end
+        local md = humanoid.MoveDirection
+        for dirName, vector in pairs(DIRECTIONS) do
+            local isFor = (dirName == "Forwards" or dirName == "Backwards")
+            local worldVector = ((getCF(root, isFor) * CFrame.new(vector)) - root.CFrame.p).p
+            if (worldVector - md).magnitude <= 1.05 and md ~= Vector3.new(0, 0, 0) then
+                nextMove = nextMove + vector
+            end
+        end
+        if st.upPressed then nextMove = nextMove + Vector3.new(0, 1, 0) end
+        if st.downPressed then nextMove = nextMove + Vector3.new(0, -1, 0) end
+        return CFrame.new(nextMove * spd * deltaTime), nextMove
+    end
+
+    local UIS = UserInputService
+    table.insert(st.inputConns, UIS.InputBegan:Connect(function(inp, g)
+        if g then return end
+        local k = inp.KeyCode
+        if k == Enum.KeyCode.E or k == Enum.KeyCode.Space then st.upPressed = true
+        elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.LeftControl then st.downPressed = true
+        end
+    end))
+    table.insert(st.inputConns, UIS.InputEnded:Connect(function(inp)
+        local k = inp.KeyCode
+        if k == Enum.KeyCode.E or k == Enum.KeyCode.Space then st.upPressed = false
+        elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.LeftControl then st.downPressed = false
+        end
+    end))
+
+    local lastUpdate = tick()
+    local lastPosition = hrp.Position
+    local staticCount = 0
+
+    st.conn = RunService.RenderStepped:Connect(function()
+        if not st.on then return end
+        local currentHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        local currentHum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if not currentHrp or not currentHum or not st.flyForce or not st.bodyGyro then return end
+
+        local delta = tick() - lastUpdate
+        local cam = workspace.CurrentCamera
+        local look = (cam.Focus.p - cam.CFrame.p).unit
+        local move, directionalVector = getNextMovement(delta, st.speed * 10)
+        local pos = currentHrp.Position
+        local targetCFrame = CFrame.new(pos, pos + look) * move
+        local targetD = 750 + (st.speed * 0.2)
+
+        if move.p ~= Vector3.new() then
+            staticCount = 0
+            st.flyForce.D = targetD
+            st.tiltAmount = st.tiltAmount + TILT_INCREMENT
+            st.flyForce.Position = targetCFrame.p
+        else
+            staticCount = staticCount + 1
+            st.tiltAmount = 1
+            local mag = (currentHrp.Position - lastPosition).magnitude
+            if mag > 6 and staticCount >= 4 then
+                st.flyForce.Position = currentHrp.Position
+            end
+        end
+        if math.abs(st.tiltAmount) > TILT_MAX then
+            st.tiltAmount = TILT_MAX
+        end
+        if st.flyForce.D == targetD then
+            local tiltZ = st.tiltAmount * directionalVector.Z
+            st.bodyGyro.CFrame = targetCFrame * CFrame.Angles(math.rad(tiltZ), 0, 0)
+        end
+        lastUpdate = tick()
+        lastPosition = currentHrp.Position
+        currentHum.PlatformStand = true
+        currentHum.Sit = false
+    end)
+
+    return true, "Fly ON · speed " .. tostring(speed)
+end
+
+function Shared.setFlySpeed(speed)
+    speed = tonumber(speed)
+    if not speed then return false, "Need speed number" end
+    local st = Shared.flyState
+    st.speed = math.clamp(speed, st.minSpeed, st.maxSpeed)
+    if st.on then
+        return Shared.startFly(st.speed)
+    end
+    return true, "Fly speed " .. st.speed
+end
+
+
+
+
 function Shared._getMyProps()
     local props = {}
     local workspaceCom = workspace:FindFirstChild("WorkspaceCom")
@@ -7251,6 +7433,24 @@ local function addCmd(def)
             return Shared.kickPlayer(plr)
         end
     })
+
+    addCmd({
+        name = "fly", aliases = {}, rank = 2,
+        display = "%Pfly [speed]",
+        desc = "Mods: fly at speed (default 50)",
+        fn = function(a)
+            local sp = tonumber(a[1]) or 50
+            return Shared.startFly(sp)
+        end
+    })
+    addCmd({
+        name = "unfly", aliases = { "flyoff" }, rank = 2,
+        display = "%Punfly",
+        desc = "Mods: stop flying",
+        fn = function()
+            return Shared.stopFly()
+        end
+    })
     addCmd({
         name = "verified", aliases = { "scriptusers", "checkusers" }, rank = 4,
         display = "%Pverified",
@@ -9684,6 +9884,84 @@ do
             fc.lookTouchId = nil
         end
     end))
+
+
+    -- FLY card
+    local flyCard = Instance.new("Frame", VisualPage)
+    flyCard.LayoutOrder = 4
+    flyCard.BackgroundColor3 = Panel
+    flyCard.BorderSizePixel = 0
+    flyCard.Size = UDim2.new(1, 0, 0, 0)
+    flyCard.AutomaticSize = Enum.AutomaticSize.Y
+    flyCard.ZIndex = 4
+    corner(flyCard, 12)
+    stroke(flyCard, StrokeCol, 1, 0.4)
+    local fPad = Instance.new("UIPadding", flyCard)
+    fPad.PaddingTop = UDim.new(0, 12)
+    fPad.PaddingBottom = UDim.new(0, 12)
+    fPad.PaddingLeft = UDim.new(0, 12)
+    fPad.PaddingRight = UDim.new(0, 12)
+    local fLay = Instance.new("UIListLayout", flyCard)
+    fLay.Padding = UDim.new(0, 8)
+    fLay.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local fHead = lbl(flyCard, "FLY", 12, Accent, Enum.Font.GothamBold)
+    fHead.LayoutOrder = 1
+    fHead.Size = UDim2.new(1, 0, 0, 18)
+    local fSub = lbl(flyCard, "Move with stick/WASD · Space/E up · Ctrl/Q down · speed 25–200", 10, TextMid, Enum.Font.Gotham)
+    fSub.LayoutOrder = 2
+    fSub.Size = UDim2.new(1, 0, 0, 16)
+
+    local speedBox = Instance.new("TextBox", flyCard)
+    speedBox.LayoutOrder = 3
+    speedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+    speedBox.BorderSizePixel = 0
+    speedBox.Size = UDim2.new(1, 0, 0, 32)
+    speedBox.Font = Enum.Font.Gotham
+    speedBox.TextSize = 13
+    speedBox.TextColor3 = TextHi
+    speedBox.PlaceholderText = "Speed (default 50)"
+    speedBox.PlaceholderColor3 = TextLo
+    speedBox.Text = "50"
+    speedBox.ClearTextOnFocus = false
+    speedBox.ZIndex = 5
+    corner(speedBox, 8)
+
+    local flyRow = Instance.new("Frame", flyCard)
+    flyRow.LayoutOrder = 4
+    flyRow.BackgroundTransparency = 1
+    flyRow.Size = UDim2.new(1, 0, 0, 34)
+    local flyOn = Instance.new("TextButton", flyRow)
+    flyOn.BackgroundColor3 = Color3.fromRGB(30, 90, 70)
+    flyOn.Size = UDim2.new(0.48, 0, 1, 0)
+    flyOn.Text = "Fly ON"
+    flyOn.Font = Enum.Font.GothamBold
+    flyOn.TextSize = 12
+    flyOn.TextColor3 = TextHi
+    flyOn.AutoButtonColor = false
+    flyOn.ZIndex = 5
+    corner(flyOn, 8)
+    local flyOff = Instance.new("TextButton", flyRow)
+    flyOff.BackgroundColor3 = Color3.fromRGB(90, 40, 40)
+    flyOff.Position = UDim2.new(0.52, 0, 0, 0)
+    flyOff.Size = UDim2.new(0.48, 0, 1, 0)
+    flyOff.Text = "Fly OFF"
+    flyOff.Font = Enum.Font.GothamBold
+    flyOff.TextSize = 12
+    flyOff.TextColor3 = TextHi
+    flyOff.AutoButtonColor = false
+    flyOff.ZIndex = 5
+    corner(flyOff, 8)
+
+    flyOn.MouseButton1Click:Connect(function()
+        local sp = tonumber(speedBox.Text) or 50
+        local ok, msg = Shared.startFly(sp)
+        if showToast then showToast(ok and "Fly" or "Error", tostring(msg), ok and "success" or "error") end
+    end)
+    flyOff.MouseButton1Click:Connect(function()
+        local ok, msg = Shared.stopFly()
+        if showToast then showToast("Fly", tostring(msg), "info") end
+    end)
 
     Shared.setFreecam = setFreecam
 end
