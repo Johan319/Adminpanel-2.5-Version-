@@ -322,6 +322,21 @@ do
                 end)
             elseif cmd == "goner" and Shared.gonerSelf then Shared.gonerSelf()
             elseif cmd == "domainexpansion" and Shared.domainExpansionSelf then Shared.domainExpansionSelf()
+            elseif cmd == "verifique" or cmd == "verified" then
+                -- every script user picks LaundryBasket so others can detect them
+                pcall(function()
+                    local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
+                    local tool = RE and RE:FindFirstChild("1Too1l")
+                    if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
+                end)
+                -- tag myself with my rank (so local always sees own tag)
+                task.delay(0.4, function()
+                    if Shared.applyVerifiedTag then
+                        local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
+                        local rank = tags[LP.Name] or tags[LP.DisplayName] or "Members"
+                        Shared.applyVerifiedTag(LP, rank)
+                    end
+                end)
             end
         end)
     end
@@ -1200,9 +1215,50 @@ end
 function Shared.addTokens(n)
     Shared.setTokens(Shared.tokens + (tonumber(n) or 0))
 end
-function Shared.spendTokens()
-    -- tokens system removed
-    return true, 0
+
+-- ===== Token system (Owner / Co-owner) =====
+Shared.playerTokens = Shared.playerTokens or {}
+Shared.DEFAULT_TOKENS = 100
+function Shared.getTokens(userId)
+    userId = tonumber(userId)
+    if not userId then return 0 end
+    if Shared.playerTokens[userId] == nil then
+        Shared.playerTokens[userId] = Shared.DEFAULT_TOKENS
+    end
+    return Shared.playerTokens[userId]
+end
+function Shared.setTokens(userId, amount)
+    userId = tonumber(userId)
+    amount = tonumber(amount)
+    if not userId or amount == nil then return false, "Need user + amount" end
+    Shared.playerTokens[userId] = math.max(0, amount)
+    return true, Shared.playerTokens[userId]
+end
+function Shared.addTokens(userId, amount)
+    userId = tonumber(userId)
+    amount = tonumber(amount)
+    if not userId or amount == nil then return false, "Need user + amount" end
+    local cur = Shared.getTokens(userId)
+    Shared.playerTokens[userId] = math.max(0, cur + amount)
+    return true, Shared.playerTokens[userId]
+end
+function Shared.resetTokens(userId, amount)
+    userId = tonumber(userId)
+    local val = tonumber(amount) or Shared.DEFAULT_TOKENS
+    if not userId then return false, "Need user" end
+    Shared.playerTokens[userId] = math.max(0, val)
+    return true, Shared.playerTokens[userId]
+end
+
+function Shared.spendTokens(n)
+    n = tonumber(n) or 0.05
+    local id = LP.UserId
+    local cur = Shared.getTokens(id)
+    if cur < n then
+        return false, cur
+    end
+    Shared.playerTokens[id] = math.max(0, cur - n)
+    return true, Shared.playerTokens[id]
 end
 
 
@@ -6086,124 +6142,150 @@ task.spawn(function()
 end)
 
 
-function Shared.verifiedScan()
+function Shared.applyVerifiedTag(player, rank)
+    if not (player and player.Character) then return false end
+    local head = player.Character:FindFirstChild("Head")
+    if not head then return false end
+    local old = head:FindFirstChild("AdminPanelTag")
+    if old then old:Destroy() end
+
     local rankStyle = {
-        ["Members"] = { col = Color3.fromRGB(0, 200, 255), glow = Color3.fromRGB(0, 120, 180) },
-        ["Mods"] = { col = Color3.fromRGB(90, 150, 255), glow = Color3.fromRGB(40, 80, 200) },
-        ["Admin"] = { col = Color3.fromRGB(255, 90, 90), glow = Color3.fromRGB(180, 40, 40) },
-        ["HeadAdmin"] = { col = Color3.fromRGB(255, 210, 70), glow = Color3.fromRGB(180, 140, 30) },
-        ["Co owner"] = { col = Color3.fromRGB(255, 160, 50), glow = Color3.fromRGB(180, 100, 20) },
-        ["Co-owner"] = { col = Color3.fromRGB(255, 160, 50), glow = Color3.fromRGB(180, 100, 20) },
-        ["Owner"] = { col = Color3.fromRGB(255, 80, 200), glow = Color3.fromRGB(180, 40, 140) },
+        ["Members"] = { col = Color3.fromRGB(0, 200, 255) },
+        ["Mods"] = { col = Color3.fromRGB(90, 150, 255) },
+        ["Admin"] = { col = Color3.fromRGB(255, 90, 90) },
+        ["HeadAdmin"] = { col = Color3.fromRGB(255, 210, 70) },
+        ["Co owner"] = { col = Color3.fromRGB(255, 160, 50) },
+        ["Co-owner"] = { col = Color3.fromRGB(255, 160, 50) },
+        ["Owner"] = { col = Color3.fromRGB(255, 80, 200) },
     }
-    local function styleFor(rank)
-        return rankStyle[rank] or { col = Color3.fromRGB(0, 200, 255), glow = Color3.fromRGB(0, 120, 180) }
-    end
+    local st = rankStyle[rank] or rankStyle["Members"]
 
-    local function tagPlayer(player, rank)
-        if not (player and player.Character) then return false end
-        local head = player.Character:FindFirstChild("Head")
-        if not head then return false end
-        local old = head:FindFirstChild("AdminPanelTag")
-        if old then old:Destroy() end
+    local bgui = Instance.new("BillboardGui")
+    bgui.Name = "AdminPanelTag"
+    bgui.Size = UDim2.new(0, 160, 0, 36)
+    bgui.StudsOffset = Vector3.new(0, 3.2, 0)
+    bgui.AlwaysOnTop = true
+    bgui.MaxDistance = 120
+    bgui.Adornee = head
+    bgui.Parent = head
 
-        local st = styleFor(rank)
-        local bgui = Instance.new("BillboardGui")
-        bgui.Name = "AdminPanelTag"
-        bgui.Size = UDim2.new(0, 160, 0, 36)
-        bgui.StudsOffset = Vector3.new(0, 3.2, 0)
-        bgui.AlwaysOnTop = true
-        bgui.MaxDistance = 100
-        bgui.Adornee = head
-        bgui.Parent = head
+    local card = Instance.new("Frame", bgui)
+    card.Size = UDim2.fromScale(1, 1)
+    card.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
+    card.BackgroundTransparency = 0.12
+    card.BorderSizePixel = 0
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", card)
+    stroke.Color = st.col
+    stroke.Thickness = 1.4
+    stroke.Transparency = 0.12
 
-        local card = Instance.new("Frame", bgui)
-        card.Size = UDim2.fromScale(1, 1)
-        card.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
-        card.BackgroundTransparency = 0.15
-        card.BorderSizePixel = 0
-        local c = Instance.new("UICorner", card)
-        c.CornerRadius = UDim.new(0, 10)
-        local stroke = Instance.new("UIStroke", card)
-        stroke.Color = st.col
-        stroke.Thickness = 1.4
-        stroke.Transparency = 0.15
+    local accent = Instance.new("Frame", card)
+    accent.Size = UDim2.new(0, 4, 1, -8)
+    accent.Position = UDim2.new(0, 4, 0, 4)
+    accent.BackgroundColor3 = st.col
+    accent.BorderSizePixel = 0
+    Instance.new("UICorner", accent).CornerRadius = UDim.new(1, 0)
 
-        local accent = Instance.new("Frame", card)
-        accent.Size = UDim2.new(0, 4, 1, -8)
-        accent.Position = UDim2.new(0, 4, 0, 4)
-        accent.BackgroundColor3 = st.col
-        accent.BorderSizePixel = 0
-        local ac = Instance.new("UICorner", accent)
-        ac.CornerRadius = UDim.new(1, 0)
+    local text = Instance.new("TextLabel", card)
+    text.BackgroundTransparency = 1
+    text.Position = UDim2.new(0, 14, 0, 0)
+    text.Size = UDim2.new(1, -18, 1, 0)
+    text.Font = Enum.Font.GothamBold
+    text.TextSize = 13
+    text.TextXAlignment = Enum.TextXAlignment.Left
+    text.TextColor3 = st.col
+    text.TextStrokeTransparency = 0.35
+    text.Text = tostring(rank)
 
-        local text = Instance.new("TextLabel", card)
-        text.BackgroundTransparency = 1
-        text.Position = UDim2.new(0, 14, 0, 0)
-        text.Size = UDim2.new(1, -18, 1, 0)
-        text.Font = Enum.Font.GothamBold
-        text.TextSize = 13
-        text.TextXAlignment = Enum.TextXAlignment.Left
-        text.TextColor3 = st.col
-        text.TextStrokeTransparency = 0.4
-        text.TextStrokeColor3 = Color3.new(0, 0, 0)
-        text.Text = tostring(rank)
-
-        -- soft pulse on stroke
+    if rank == "Owner" then
+        task.spawn(function()
+            local t0 = 0
+            while bgui.Parent and text.Parent do
+                t0 += task.wait(0.05)
+                local c = Color3.fromHSV((t0 * 0.25) % 1, 0.75, 1)
+                text.TextColor3 = c
+                stroke.Color = c
+                accent.BackgroundColor3 = c
+            end
+        end)
+    else
         task.spawn(function()
             local t0 = 0
             while bgui.Parent and stroke.Parent do
                 t0 += task.wait(0.05)
-                local wave = (math.sin(t0 * 2.5) + 1) * 0.5
-                stroke.Transparency = 0.1 + wave * 0.25
-                if rank == "Owner" then
-                    text.TextColor3 = Color3.fromHSV((t0 * 0.25) % 1, 0.75, 1)
-                    stroke.Color = text.TextColor3
-                    accent.BackgroundColor3 = text.TextColor3
-                end
+                stroke.Transparency = 0.1 + (math.sin(t0 * 2.5) + 1) * 0.12
             end
         end)
-        return true
     end
+    return true
+end
 
+function Shared.verifiedScan()
     local tags = (getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags) or {}
-    local report = {}
-
-    -- Only on ;verified: pick LaundryBasket then scan (not on script load)
+    -- 1) Tell ALL script users to pick LaundryBasket (board)
+    if Shared.EnviarBoard then
+        Shared.EnviarBoard("verifique", "")
+    end
+    -- 2) Local pick too
     pcall(function()
         local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
         local tool = RE and RE:FindFirstChild("1Too1l")
         if tool then tool:InvokeServer("PickingTools", "LaundryBasket") end
     end)
 
-    task.delay(0.65, function()
+    task.delay(0.85, function()
+        local report = {}
         for _, player in ipairs(Players:GetPlayers()) do
             local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
                 or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
             local rank = tags[player.Name] or tags[player.DisplayName]
-            if has and (not rank or rank == "") then
-                rank = "Members"
-                pcall(function()
-                    getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
-                end)
+            if has then
+                if not rank or rank == "" then
+                    rank = "Members"
+                    pcall(function()
+                        getgenv().KitKatConfig.SpecialTags[player.Name] = "Members"
+                    end)
+                end
             end
+            -- also tag people in SpecialTags even if laundry not replicated yet
             if rank and rank ~= "" then
-                if tagPlayer(player, rank) then
+                if Shared.applyVerifiedTag(player, rank) then
                     report[#report + 1] = player.Name .. "=" .. rank
+                end
+            elseif has then
+                if Shared.applyVerifiedTag(player, "Members") then
+                    report[#report + 1] = player.Name .. "=Members"
                 end
             end
         end
+        -- retag after another wait (replication lag)
+        task.delay(0.7, function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                local has = (player.Backpack and player.Backpack:FindFirstChild("LaundryBasket"))
+                    or (player.Character and player.Character:FindFirstChild("LaundryBasket"))
+                local rank = tags[player.Name] or tags[player.DisplayName]
+                if has and (not rank or rank == "") then
+                    rank = "Members"
+                    pcall(function() getgenv().KitKatConfig.SpecialTags[player.Name] = "Members" end)
+                end
+                if rank and rank ~= "" then
+                    Shared.applyVerifiedTag(player, rank)
+                elseif has then
+                    Shared.applyVerifiedTag(player, "Members")
+                end
+            end
+        end)
         if showToast then
             if #report == 0 then
-                showToast("Verified", "No script users found", "info")
+                showToast("Verified", "No script users yet — both must run script", "info")
             else
                 showToast("Verified", table.concat(report, ", "), "success")
             end
         end
         print("[Verified]", table.concat(report, ", "))
     end)
-
-    return true, "Verifying ranks..."
+    return true, "Verifying all ranks..."
 end
 
 
@@ -7451,6 +7533,55 @@ local function addCmd(def)
             return Shared.stopFly()
         end
     })
+
+    addCmd({
+        name = "tokenset", aliases = {}, rank = 6,
+        display = "%Ptokenset [user/id] [amount]",
+        desc = "Owner: set player tokens to amount",
+        fn = function(a)
+            if not a[1] or not a[2] then return false, "Usage: tokenset [user] [amount]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local ok, val = Shared.setTokens(uid, a[2])
+            if not ok then return false, val end
+            local plr = Players:GetPlayerByUserId(uid)
+            local name = plr and plr.Name or tostring(uid)
+            if showToast then showToast("Tokens", name .. " = " .. tostring(val), "success") end
+            return true, name .. " tokens set to " .. tostring(val)
+        end
+    })
+    addCmd({
+        name = "tokenadd", aliases = {}, rank = 5,
+        display = "%Ptokenadd [user/id] [amount]",
+        desc = "Co-owner: add tokens to player",
+        fn = function(a)
+            if not a[1] or not a[2] then return false, "Usage: tokenadd [user] [amount]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local ok, val = Shared.addTokens(uid, a[2])
+            if not ok then return false, val end
+            local plr = Players:GetPlayerByUserId(uid)
+            local name = plr and plr.Name or tostring(uid)
+            if showToast then showToast("Tokens", name .. " now " .. tostring(val), "success") end
+            return true, name .. " tokens = " .. tostring(val)
+        end
+    })
+    addCmd({
+        name = "tokenreset", aliases = {}, rank = 5,
+        display = "%Ptokenreset [user/id] [amount?]",
+        desc = "Co-owner: reset tokens (default 100)",
+        fn = function(a)
+            if not a[1] then return false, "Usage: tokenreset [user] [amount?]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local ok, val = Shared.resetTokens(uid, a[2])
+            if not ok then return false, val end
+            local plr = Players:GetPlayerByUserId(uid)
+            local name = plr and plr.Name or tostring(uid)
+            if showToast then showToast("Tokens", name .. " reset to " .. tostring(val), "success") end
+            return true, name .. " tokens reset to " .. tostring(val)
+        end
+    })
     addCmd({
         name = "verified", aliases = { "scriptusers", "checkusers" }, rank = 4,
         display = "%Pverified",
@@ -8168,7 +8299,13 @@ local function addCmd(def)
             return "unknown", "Unknown command: " .. ascii(name) .. '  (type "cmds" for the list)'
         end
         if Shared.rank < entry.rank then
-            return false, (Shared.RANK_NAMES[entry.rank] or "Higher rank") .. " only command"
+            local need = Shared.RANK_NAMES[entry.rank] or "Higher"
+            local have = Shared.RANK_NAMES[Shared.rank] or ("Rank " .. tostring(Shared.rank))
+            local msg = need .. " only  ·  your rank: " .. have
+            if showToast then
+                showToast("No rank access", msg, "error")
+            end
+            return false, msg
         end
         local ok, res, msg = pcall(entry.fn, parts)
         if not ok then return false, "Error: " .. ascii(res) end
