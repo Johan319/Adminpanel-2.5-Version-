@@ -5990,33 +5990,28 @@ function Shared.explodePlayer(targetPlayer)
     return true, "Explode " .. targetPlayer.Name
 end
 
-function Shared.jailPlayer(targetPlayer)
-    if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("jail", targetPlayer.Name) then
-            return true, "jail → " .. targetPlayer.Name .. " (board)"
-        end
-        return false, "Board not ready / target must run script"
-    end
-    if not targetPlayer.Character then return false, "No character" end
-    local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return false, "No root" end
-    local uid = targetPlayer.UserId
+function Shared._buildJailAt(uid, pos)
     if Shared._jails[uid] then
         for _, p in ipairs(Shared._jails[uid]) do pcall(function() p:Destroy() end) end
     end
     Shared._jails[uid] = {}
-    local pos = root.Position
     local function wall(cf, size)
         local p = Instance.new("Part")
+        p.Name = "AdminJailWall"
         p.Anchored = true
         p.CanCollide = true
-        p.Material = Enum.Material.ForceField
-        p.Transparency = 0.3
-        p.Color = Color3.fromRGB(255, 0, 0)
+        p.Material = Enum.Material.Neon
+        p.Transparency = 0.25
+        p.Color = Color3.fromRGB(255, 40, 40)
         p.Size = size
         p.CFrame = cf
-        p.Parent = Workspace
+        p.Parent = workspace
+        -- visible outline
+        local s = Instance.new("SelectionBox")
+        s.Adornee = p
+        s.Color3 = Color3.fromRGB(255, 80, 80)
+        s.LineThickness = 0.05
+        s.Parent = p
         table.insert(Shared._jails[uid], p)
     end
     wall(CFrame.new(pos + Vector3.new(5, 0, 0)), Vector3.new(1, 10, 10))
@@ -6025,21 +6020,59 @@ function Shared.jailPlayer(targetPlayer)
     wall(CFrame.new(pos + Vector3.new(0, 0, -5)), Vector3.new(10, 10, 1))
     wall(CFrame.new(pos + Vector3.new(0, 5, 0)), Vector3.new(10, 1, 10))
     wall(CFrame.new(pos + Vector3.new(0, -5, 0)), Vector3.new(10, 1, 10))
+end
+
+function Shared.jailPlayer(targetPlayer)
+    if not targetPlayer then return false, "Invalid" end
+    if not targetPlayer.Character then return false, "No character" end
+    local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return false, "No root" end
+    local uid = targetPlayer.UserId
+    -- ALWAYS build visible jail on THIS client so Owner sees it
+    Shared._buildJailAt(uid, root.Position)
+    -- Keep walls following target briefly
+    task.spawn(function()
+        local alive = true
+        task.delay(12, function() alive = false end)
+        while alive and Shared._jails[uid] do
+            local c = targetPlayer.Character
+            local r = c and c:FindFirstChild("HumanoidRootPart")
+            if not r then break end
+            -- only re-center if far (avoid flicker)
+            local walls = Shared._jails[uid]
+            if walls and walls[1] and walls[1].Parent then
+                local mid = Vector3.zero
+                for _, w in ipairs(walls) do mid = mid + w.Position end
+                mid = mid / #walls
+                if (mid - r.Position).Magnitude > 8 then
+                    Shared._buildJailAt(uid, r.Position)
+                end
+            end
+            task.wait(0.5)
+        end
+    end)
+    if targetPlayer ~= LP then
+        if Shared.EnviarBoard then
+            Shared.EnviarBoard("jail", targetPlayer.Name)
+        end
+        return true, "Jail visible → " .. targetPlayer.Name
+    end
     return true, "Jail " .. targetPlayer.Name
 end
 
 function Shared.unjailPlayer(targetPlayer)
     if not targetPlayer then return false, "Invalid" end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard and Shared.EnviarBoard("unjail", targetPlayer.Name) then
-            return true, "unjail → " .. targetPlayer.Name .. " (board)"
-        end
-        return false, "Board not ready / target must run script"
-    end
     local uid = targetPlayer.UserId
+    -- clear local visible jail
     if Shared._jails[uid] then
         for _, p in ipairs(Shared._jails[uid]) do pcall(function() p:Destroy() end) end
         Shared._jails[uid] = nil
+    end
+    if targetPlayer ~= LP then
+        if Shared.EnviarBoard then
+            Shared.EnviarBoard("unjail", targetPlayer.Name)
+        end
+        return true, "Unjail → " .. targetPlayer.Name
     end
     return true, "Unjail " .. targetPlayer.Name
 end
@@ -6333,6 +6366,52 @@ function Shared.jumpscarePlayer(targetPlayer, imgId, soundId)
     return true, "Jumpscare sent → " .. targetPlayer.Name
 end
 
+
+
+function Shared.domainExpansionSelf()
+    task.spawn(function()
+        local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        local origin = hrp and hrp.Position or Vector3.zero
+        local parts = {}
+        for i = 1, 16 do
+            local ang = math.rad(i * 22.5)
+            local p = Instance.new("Part")
+            p.Anchored = true
+            p.CanCollide = false
+            p.Material = Enum.Material.Neon
+            p.Color = Color3.fromRGB(80, 0, 120)
+            p.Size = Vector3.new(2, 12, 1)
+            p.CFrame = CFrame.new(origin) * CFrame.Angles(0, ang, 0) * CFrame.new(0, 4, 14)
+            p.Transparency = 0.2
+            p.Parent = workspace
+            parts[#parts+1] = p
+        end
+        local ring = Instance.new("Part")
+        ring.Shape = Enum.PartType.Cylinder
+        ring.Anchored = true
+        ring.CanCollide = false
+        ring.Material = Enum.Material.ForceField
+        ring.Color = Color3.fromRGB(120, 0, 180)
+        ring.Size = Vector3.new(1, 28, 28)
+        ring.CFrame = CFrame.new(origin + Vector3.new(0, 2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+        ring.Transparency = 0.4
+        ring.Parent = workspace
+        parts[#parts+1] = ring
+        if showToast then showToast("Domain Expansion", "Malevolent Shrine", "info") end
+        task.wait(6)
+        for _, p in ipairs(parts) do pcall(function() p:Destroy() end) end
+    end)
+    return true, "Domain expansion"
+end
+
+function Shared.gonerSelf()
+    pcall(function()
+        local h = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if h then h.Health = 0 end
+    end)
+    if showToast then showToast("Goner", "Effect", "info") end
+    return true, "Goner"
+end
 
 function Shared.backroomsSelf()
     task.spawn(function()
@@ -7761,11 +7840,25 @@ local function addCmd(def)
         end
     })
     addCmd({
-        name = "backrooms", aliases = {}, rank = 5,
-        display = "%Pbackrooms",
-        desc = "Co-owner: backrooms effect (local)",
-        fn = function()
-            return Shared.backroomsSelf()
+        name = "backrooms", aliases = {}, rank = 1,
+        display = "%Pbackrooms [user/id/nickname]",
+        desc = "All ranks: backrooms on target (must run script)",
+        fn = function(a)
+            if not a[1] then
+                return Shared.backroomsSelf and Shared.backroomsSelf() or false, "Usage: backrooms [user]"
+            end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in server" end
+            if plr == LP then
+                return Shared.backroomsSelf()
+            end
+            if Shared.EnviarBoard and Shared.EnviarBoard("backrooms", plr.Name) then
+                if showToast then showToast("Backrooms", "→ " .. plr.Name, "success") end
+                return true, "Backrooms → " .. plr.Name
+            end
+            return false, "Board not ready"
         end
     })
     addCmd({
@@ -7920,21 +8013,60 @@ local function addCmd(def)
         end
     })
     addCmd({
-        name = "goner", aliases = {}, rank = 6,
-        display = "%Pgoner",
-        desc = "Owner: goner effect (local)",
-        fn = function()
-            if showToast then showToast("Goner", "Effect triggered", "info") end
-            return true, "Goner"
+        name = "goner", aliases = {}, rank = 1,
+        display = "%Pgoner [user/id/nickname]",
+        desc = "All ranks: goner on target",
+        fn = function(a)
+            if not a[1] then return Shared.gonerSelf and Shared.gonerSelf() or false, "Usage: goner [user]" end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in server" end
+            if plr == LP then return Shared.gonerSelf() end
+            if Shared.EnviarBoard and Shared.EnviarBoard("goner", plr.Name) then
+                return true, "Goner → " .. plr.Name
+            end
+            return false, "Board not ready"
         end
     })
     addCmd({
-        name = "domainexpansion", aliases = { "domain" }, rank = 6,
-        display = "%Pdomainexpansion",
-        desc = "Owner: domain expansion (local)",
-        fn = function()
-            if showToast then showToast("Domain", "Expansion triggered", "info") end
-            return true, "Domain expansion"
+        name = "domainexpansion", aliases = { "domain" }, rank = 1,
+        display = "%Pdomainexpansion [user/id/nickname]",
+        desc = "All ranks: domain expansion on target",
+        fn = function(a)
+            if not a[1] then
+                return Shared.domainExpansionSelf()
+            end
+            local uid, err = resolveTarget(a[1])
+            if not uid then return false, err end
+            local plr = Players:GetPlayerByUserId(uid)
+            if not plr then return false, "Not in server" end
+            if plr == LP then return Shared.domainExpansionSelf() end
+            -- local VFX at their position so Owner sees it
+            task.spawn(function()
+                local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+                local origin = root and root.Position or Vector3.zero
+                local parts = {}
+                for i = 1, 12 do
+                    local ang = math.rad(i * 30)
+                    local p = Instance.new("Part")
+                    p.Anchored = true
+                    p.CanCollide = false
+                    p.Material = Enum.Material.Neon
+                    p.Color = Color3.fromRGB(80, 0, 120)
+                    p.Size = Vector3.new(2, 10, 1)
+                    p.CFrame = CFrame.new(origin) * CFrame.Angles(0, ang, 0) * CFrame.new(0, 3, 12)
+                    p.Transparency = 0.25
+                    p.Parent = workspace
+                    parts[#parts+1] = p
+                end
+                task.wait(5)
+                for _, p in ipairs(parts) do pcall(function() p:Destroy() end) end
+            end)
+            if Shared.EnviarBoard and Shared.EnviarBoard("domainexpansion", plr.Name) then
+                return true, "Domain → " .. plr.Name
+            end
+            return true, "Domain VFX → " .. plr.Name
         end
     })
 
