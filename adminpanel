@@ -9972,6 +9972,15 @@ do
 
 
     Shared.setFreecam = setFreecam
+
+    -- ensure fly sits at bottom of scroll
+    pcall(function()
+        if flyCard then
+            flyCard.LayoutOrder = 99
+            flyCard.Visible = true
+            flyCard.Parent = VisualPage
+        end
+    end)
 end
 
 -- ===================== CREDITS =====================
@@ -10644,8 +10653,65 @@ do
         end)
     end
 
+
+    -- FE Invite All
+    do
+        local inviteOn, inviteGen, inviteThread = false, 0, nil
+        local invBtn = Instance.new("TextButton", AdminAbusePage)
+        invBtn.LayoutOrder = 8
+        invBtn.Name = "FeInviteAll"
+        invBtn.Size = UDim2.new(1, 0, 0, 40)
+        invBtn.BackgroundColor3 = Panel
+        invBtn.BorderSizePixel = 0
+        invBtn.Text = "FE Invite All: OFF"
+        invBtn.TextColor3 = TextHi
+        invBtn.Font = Enum.Font.Gotham
+        invBtn.TextSize = 12
+        invBtn.AutoButtonColor = false
+        invBtn.ZIndex = 4
+        corner(invBtn, 10)
+        stroke(invBtn, StrokeCol, 1, 0.4)
+        invBtn.MouseButton1Click:Connect(function()
+            if inviteOn then
+                inviteOn = false
+                inviteGen = inviteGen + 1
+                invBtn.Text = "FE Invite All: OFF"
+                if showToast then showToast("Invite All", "OFF", "info") end
+                return
+            end
+            inviteOn = true
+            inviteGen = inviteGen + 1
+            local myGen = inviteGen
+            invBtn.Text = "FE Invite All: ON"
+            if showToast then showToast("Invite All", "ON — spamming family invites", "success") end
+            task.spawn(function()
+                local remote = nil
+                pcall(function()
+                    remote = game:GetService("ReplicatedStorage")
+                        :WaitForChild("Remotes", 5)
+                        :WaitForChild("InvitePlayerToFamily", 5)
+                end)
+                if not remote then
+                    inviteOn = false
+                    invBtn.Text = "FE Invite All: OFF (no remote)"
+                    return
+                end
+                while inviteOn and myGen == inviteGen do
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if not inviteOn or myGen ~= inviteGen then break end
+                        pcall(function()
+                            remote:FireServer(player.UserId, "FamilyInviteMenu")
+                        end)
+                        task.wait(0.05)
+                    end
+                    task.wait(1)
+                end
+            end)
+        end)
+    end
+
     local warnL = lbl(AdminAbusePage, "ON = props + players. OFF = clear. FE OFF fully stops spam.", 10, TextLo, Enum.Font.Gotham)
-    warnL.LayoutOrder = 8
+    warnL.LayoutOrder = 9
     warnL.Size = UDim2.new(1, 0, 0, 28)
     warnL.TextWrapped = true
     refreshPropCount()
