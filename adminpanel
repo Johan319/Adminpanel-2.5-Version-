@@ -5991,95 +5991,117 @@ function Shared.explodePlayer(targetPlayer)
 end
 
 function Shared._buildJailAt(uid, pos)
+    Shared._jails = Shared._jails or {}
     if Shared._jails[uid] then
         for _, p in ipairs(Shared._jails[uid]) do pcall(function() p:Destroy() end) end
     end
     Shared._jails[uid] = {}
-    local function wall(cf, size)
+
+    local model = Instance.new("Model")
+    model.Name = "AdminJail_" .. tostring(uid)
+    model.Parent = workspace
+
+    local function part(cf, size, color)
         local p = Instance.new("Part")
-        p.Name = "AdminJailWall"
+        p.Name = "JailPart"
         p.Anchored = true
         p.CanCollide = true
-        p.CanQuery = true
-        p.CanTouch = true
         p.CastShadow = true
-        p.Material = Enum.Material.SmoothPlastic
+        p.Material = Enum.Material.Metal
         p.Transparency = 0
-        p.Reflectance = 0.05
-        p.Color = Color3.fromRGB(220, 30, 30)
+        p.Reflectance = 0
+        p.Color = color or Color3.fromRGB(40, 40, 45)
         p.Size = size
         p.CFrame = cf
-        p.Parent = workspace
-        -- bright edges so it never looks invisible
-        local s = Instance.new("SelectionBox")
-        s.Adornee = p
-        s.Color3 = Color3.fromRGB(255, 220, 0)
-        s.LineThickness = 0.08
-        s.SurfaceTransparency = 0.7
-        s.Parent = p
+        p.Parent = model
         table.insert(Shared._jails[uid], p)
+        return p
     end
-    -- thicker solid walls (fully opaque)
-    wall(CFrame.new(pos + Vector3.new(6, 4, 0)), Vector3.new(1.5, 10, 12))
-    wall(CFrame.new(pos + Vector3.new(-6, 4, 0)), Vector3.new(1.5, 10, 12))
-    wall(CFrame.new(pos + Vector3.new(0, 4, 6)), Vector3.new(12, 10, 1.5))
-    wall(CFrame.new(pos + Vector3.new(0, 4, -6)), Vector3.new(12, 10, 1.5))
-    wall(CFrame.new(pos + Vector3.new(0, 9, 0)), Vector3.new(12, 1.5, 12))
-    wall(CFrame.new(pos + Vector3.new(0, -1, 0)), Vector3.new(12, 1.5, 12))
+
+    -- solid floor + roof (opaque dark)
+    part(CFrame.new(pos + Vector3.new(0, -3, 0)), Vector3.new(14, 1, 14), Color3.fromRGB(30, 30, 35))
+    part(CFrame.new(pos + Vector3.new(0, 8, 0)), Vector3.new(14, 1, 14), Color3.fromRGB(30, 30, 35))
+
+    -- 4 solid side walls (red, fully opaque)
+    local red = Color3.fromRGB(200, 25, 25)
+    part(CFrame.new(pos + Vector3.new(7, 2.5, 0)), Vector3.new(1, 10, 14), red)
+    part(CFrame.new(pos + Vector3.new(-7, 2.5, 0)), Vector3.new(1, 10, 14), red)
+    part(CFrame.new(pos + Vector3.new(0, 2.5, 7)), Vector3.new(14, 10, 1), red)
+    part(CFrame.new(pos + Vector3.new(0, 2.5, -7)), Vector3.new(14, 10, 1), red)
+
+    -- vertical bars on each face (black metal, opaque)
+    local bar = Color3.fromRGB(15, 15, 18)
+    for face = 0, 3 do
+        local ang = face * 90
+        for i = -5, 5, 2 do
+            local offset = CFrame.new(pos) * CFrame.Angles(0, math.rad(ang), 0) * CFrame.new(i, 2.5, 6.4)
+            part(offset, Vector3.new(0.6, 9, 0.6), bar)
+        end
+    end
+
+    -- store model for cleanup
+    table.insert(Shared._jails[uid], model)
+    return model
 end
 
 function Shared.jailPlayer(targetPlayer)
     if not targetPlayer then return false, "Invalid" end
     if not targetPlayer.Character then return false, "No character" end
     local root = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        or targetPlayer.Character:FindFirstChild("Torso")
+        or targetPlayer.Character:FindFirstChild("UpperTorso")
     if not root then return false, "No root" end
+
     local uid = targetPlayer.UserId
-    -- ALWAYS build visible jail on THIS client so Owner sees it
-    Shared._buildJailAt(uid, root.Position)
-    -- Keep walls following target briefly
+    local pos = root.Position
+
+    -- YOU always see the cage (local parts)
+    Shared._buildJailAt(uid, pos)
+    if showToast then
+        showToast("Jail", "Cage on " .. targetPlayer.Name, "success")
+    end
+
+    -- follow target so cage stays on them
     task.spawn(function()
-        local alive = true
-        task.delay(12, function() alive = false end)
-        while alive and Shared._jails[uid] do
+        for _ = 1, 40 do
+            if not Shared._jails[uid] then break end
             local c = targetPlayer.Character
-            local r = c and c:FindFirstChild("HumanoidRootPart")
+            local r = c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso"))
             if not r then break end
-            -- only re-center if far (avoid flicker)
-            local walls = Shared._jails[uid]
-            if walls and walls[1] and walls[1].Parent then
-                local mid = Vector3.zero
-                for _, w in ipairs(walls) do mid = mid + w.Position end
-                mid = mid / #walls
-                if (mid - r.Position).Magnitude > 8 then
-                    Shared._buildJailAt(uid, r.Position)
-                end
+            if (r.Position - pos).Magnitude > 6 then
+                pos = r.Position
+                Shared._buildJailAt(uid, pos)
             end
-            task.wait(0.5)
+            task.wait(0.4)
         end
     end)
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard then
-            Shared.EnviarBoard("jail", targetPlayer.Name)
-        end
-        return true, "Jail visible → " .. targetPlayer.Name
+
+    -- target also gets jail if they run the script
+    if targetPlayer ~= LP and Shared.EnviarBoard then
+        Shared.EnviarBoard("jail", targetPlayer.Name)
     end
-    return true, "Jail " .. targetPlayer.Name
+    return true, "Jail on " .. targetPlayer.Name .. " (visible)"
 end
 
 function Shared.unjailPlayer(targetPlayer)
     if not targetPlayer then return false, "Invalid" end
+    Shared._jails = Shared._jails or {}
     local uid = targetPlayer.UserId
-    -- clear local visible jail
     if Shared._jails[uid] then
-        for _, p in ipairs(Shared._jails[uid]) do pcall(function() p:Destroy() end) end
+        for _, p in ipairs(Shared._jails[uid]) do
+            pcall(function() p:Destroy() end)
+        end
         Shared._jails[uid] = nil
     end
-    if targetPlayer ~= LP then
-        if Shared.EnviarBoard then
-            Shared.EnviarBoard("unjail", targetPlayer.Name)
-        end
-        return true, "Unjail → " .. targetPlayer.Name
+    -- also clear any leftover models
+    pcall(function()
+        local m = workspace:FindFirstChild("AdminJail_" .. tostring(uid))
+        if m then m:Destroy() end
+    end)
+    if targetPlayer ~= LP and Shared.EnviarBoard then
+        Shared.EnviarBoard("unjail", targetPlayer.Name)
     end
+    if showToast then showToast("Unjail", targetPlayer.Name, "info") end
     return true, "Unjail " .. targetPlayer.Name
 end
 
