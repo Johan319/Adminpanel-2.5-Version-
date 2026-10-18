@@ -6008,7 +6008,7 @@ function Shared._buildJailAt(uid, pos)
         p.CanCollide = true
         p.CastShadow = true
         p.Material = Enum.Material.Metal
-        p.Transparency = 0
+        p.Transparency = 0.5
         p.Reflectance = 0
         p.Color = color or Color3.fromRGB(40, 40, 45)
         p.Size = size
