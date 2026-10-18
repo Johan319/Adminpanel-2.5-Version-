@@ -225,38 +225,6 @@ Shared.grantPremium = false
 Shared.rank = Shared.baseRank
 Shared.premium = Shared.basePremium
 
--- Brookhaven only features (Admin Abuse, props, board cmds, protections)
-Shared.BROOKHAVEN_GAME_IDS = {
-    [4924922222] = true,
-}
-Shared.isBrookhaven = false
-pcall(function()
-    if Shared.BROOKHAVEN_GAME_IDS[game.GameId] or Shared.BROOKHAVEN_GAME_IDS[game.PlaceId] then
-        Shared.isBrookhaven = true
-    end
-    if workspace:FindFirstChild("WorkspaceCom") then
-        Shared.isBrookhaven = true
-    end
-    local ok, info = pcall(function()
-        return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
-    end)
-    if ok and info and type(info.Name) == "string" then
-        if string.lower(info.Name):find("brookhaven", 1, true) then
-            Shared.isBrookhaven = true
-        end
-    end
-end)
-print("[Panel] Brookhaven mode:", Shared.isBrookhaven, "PlaceId=", game.PlaceId, "GameId=", game.GameId)
-
-function Shared.requireBrookhaven()
-    if Shared.isBrookhaven then return true end
-    if showToast then
-        showToast("Brookhaven only", "This only works in Brookhaven RP", "error")
-    end
-    return false, "Brookhaven only — join Brookhaven RP"
-end
-
-
 do
     local tags = getgenv().KitKatConfig and getgenv().KitKatConfig.SpecialTags
     local map = { Members=1, Mods=2, Admin=3, HeadAdmin=4, ["Co owner"]=5, ["Co-owner"]=5, Owner=6 }
@@ -2323,9 +2291,7 @@ local NavItems = {
     { name = "Chat",         icon = "chat"       },
     { name = "Players",      icon = "players"    },
     { name = "Info Players", icon = "info"       },
-    { name = "Protections",  icon = "shield",
-      sub = "Brookhaven", subCol = Color3.fromRGB(0, 191, 255),
-      lockFn = function() return not Shared.isBrookhaven end },
+    { name = "Protections",  icon = "shield"     },
     { name = "Support Games", icon = "games" },
     { name = "Visual",       icon = "builder" },
     { name = "ScriptBlox",   icon = "scriptblox" },
@@ -2335,9 +2301,9 @@ local NavItems = {
     { name = "Ai Assistant", icon = "ai",
       sub = "Premium", subCol = Color3.fromRGB(255, 200, 70),
       lockFn = function() return not Shared.premium end },
-    { name = "Admin Abuse",  icon = "shield",
-      sub = "Brookhaven", subCol = Color3.fromRGB(255, 90, 90),
-      lockFn = function() return (not Shared.isBrookhaven) or Shared.rank < 6 end },
+        { name = "Admin Abuse",  icon = "shield",
+      sub = "Owner", subCol = Color3.fromRGB(255, 90, 90),
+      lockFn = function() return Shared.rank < 6 end },
     { name = "Credits",      icon = "credits"    },
 }
 
@@ -8515,21 +8481,6 @@ local function addCmd(def)
             end
             return false, msg
         end
-        -- Brookhaven-only commands
-        local bhOnly = {
-            jail=true, unjail=true, bring=true, kill=true, fling=true, ragdoll=true,
-            fire=true, loopfire=true, unloopfire=true, sit=true, loopsit=true, unloopsit=true,
-            float=true, explode=true, freeze=true, unfreeze=true, backrooms=true,
-            jumps1=true, jumps2=true, jumps3=true, jumps4=true,
-            therakejumpscare=true, animejumpscare=true, pararjumpscare=true,
-            goner=true, domainexpansion=true, verified=true, verifique=true,
-            kick=true,
-        }
-        if bhOnly[entry.name] and not Shared.isBrookhaven then
-            local msg = "Brookhaven only — join Brookhaven RP"
-            if showToast then showToast("Wrong game", msg, "error") end
-            return false, msg
-        end
         local ok, res, msg = pcall(entry.fn, parts)
         if not ok then return false, "Error: " .. ascii(res) end
         return res, msg
@@ -13800,18 +13751,6 @@ for name, data in pairs(NavButtons) do
     data.button.Activated:Connect(onNav)
 end
 
-
--- Hide Brookhaven-only tabs when not in Brookhaven
-if not Shared.isBrookhaven then
-    for _, name in ipairs({ "Protections", "Admin Abuse" }) do
-        local data = NavButtons[name]
-        if data and data.button then
-            data.button.Visible = false
-        end
-    end
-    print("[Panel] Non-Brookhaven: Protections & Admin Abuse hidden")
-end
-
 Overview.Position = UDim2.new(0, 0, 0, 0)
 Overview.Visible = true
 currentTab = "Overview"
@@ -14122,11 +14061,7 @@ do
 end
 
 task.delay(0.6, function()
-    if Shared.isBrookhaven then
-        showToast("Admin Panel (2.5)", "Brookhaven mode · full tabs", "success")
-    else
-        showToast("Admin Panel (2.5)", "Not Brookhaven · BH tabs/commands hidden", "info")
-    end
+    showToast("Admin Panel (2.5) Loaded", "Ready to use", "success")
 end)
 
 print("[Panel] Loaded - Admin Panel (2.5)")
